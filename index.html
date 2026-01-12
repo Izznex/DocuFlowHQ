@@ -283,12 +283,13 @@
             <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Category</label>
             <div class="relative mb-8">
                 <select id="doc-type-select" class="w-full bg-gray-900 text-white border border-gray-700 rounded-lg p-3 pr-10 focus:border-emerald-500 outline-none appearance-none">
-                    <option value="Service Report">Service Report</option>
                     <option value="Quotation">Quotation</option>
-                    <option value="Permit to Work">Permit to Work</option>
                     <option value="Purchase Request">Purchase Request</option>
+                    <option value="Purchase Order">Purchase Order </option>
+                    <option value="Service Report">Service Report</option>
+                    <option value="Delivery Order">Delivery Order 🌟</option>
                     <option value="Invoice">Invoice</option>
-                    <option value="Purchase Order">Purchase Order 🌟</option>
+                    <option value="Permit to Work">Permit to Work</option>
                     <option value="Other">Other</option>
                 </select>
                 <i data-lucide="chevron-down" class="absolute right-3 top-3.5 text-gray-400 w-5 h-5 pointer-events-none"></i>
@@ -402,71 +403,43 @@
 
        function getJobStatus(job) {
             if(!job || !job.documents) return 'Open';
-            // Logic: Job is complete ONLY if a Purchase Order exists AND it is marked as Signed
-            const hasSignedPO = job.documents.some(d => d.docCategory === 'Purchase Order' && d.isSigned === true);
-            return hasSignedPO ? 'Completed' : 'Open';
+            
+            // LOGIC CHANGE: Job is complete only if a Delivery Order is signed
+            const hasSignedDO = job.documents.some(d => d.docCategory === 'Delivery Order' && d.isSigned === true);
+            
+            return hasSignedDO ? 'Completed' : 'Open';
         }
 
         function getDocBadgesHTML(documents) {
             if(!documents) return '';
             const presentCats = new Set(documents.map(d => d.docCategory));
+            
+            // STRICT SEQUENCE: 
+            // Quotation -> Purchase Request -> Purchase Order -> Service Report -> Delivery Order -> Invoice -> Others
             const badgeOrder = [
-                { key: 'Service Report', label: 'SR', color: 'bg-blue-900/40 text-blue-300 border-blue-700/50' },
                 { key: 'Quotation', label: 'QT', color: 'bg-purple-900/40 text-purple-300 border-purple-700/50' },
-                { key: 'Permit to Work', label: 'PTW', color: 'bg-red-900/40 text-red-300 border-red-700/50' },
                 { key: 'Purchase Request', label: 'PR', color: 'bg-orange-900/40 text-orange-300 border-orange-700/50' },
-                { key: 'Invoice', label: 'INV', color: 'bg-pink-900/40 text-pink-300 border-pink-700/50' },
                 { key: 'Purchase Order', label: 'PO', color: 'bg-emerald-900/40 text-emerald-300 border-emerald-700/50' },
+                { key: 'Service Report', label: 'SR', color: 'bg-blue-900/40 text-blue-300 border-blue-700/50' },
+                { key: 'Delivery Order', label: 'DO', color: 'bg-cyan-900/40 text-cyan-300 border-cyan-700/50' },
+                { key: 'Invoice', label: 'INV', color: 'bg-pink-900/40 text-pink-300 border-pink-700/50' }, // <--- Moved Here
+                
+                // Catch-all / Others
+                { key: 'Permit to Work', label: 'PTW', color: 'bg-red-900/40 text-red-300 border-red-700/50' },
                 { key: 'Other', label: 'OTH', color: 'bg-gray-700/40 text-gray-400 border-gray-600/50' }
             ];
+
             let html = '';
             badgeOrder.forEach(badge => {
                 if (presentCats.has(badge.key)) {
-                    html += `<span class="text-[9px] px-1.5 py-0.5 rounded border ${badge.color} uppercase tracking-tight font-bold shadow-sm">${badge.label}</span>`;
+                    html += `<span class="text-[9px] px-1.5 py-0.5 rounded border ${badge.color} uppercase tracking-tight font-bold shadow-sm whitespace-nowrap">
+                        <span class="md:hidden">${badge.label}</span>
+                        <span class="hidden md:inline">${badge.key}</span>
+                    </span>`;
                 }
             });
             return html;
         }
-
-        async function getDataUri(url) {
-            if (url.startsWith('data:')) return url;
-            try {
-                const response = await fetch(url);
-                const blob = await response.blob();
-                return new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => resolve(reader.result);
-                    reader.onerror = reject;
-                    reader.readAsDataURL(blob);
-                });
-            } catch (error) { console.error("Error fetching image:", error); return null; }
-        }
-
-        async function ensureDocImageLoaded(job, doc) {
-            if (doc.src && doc.src.length > 100) return doc.src;
-            if (isViewingArchive) return null;
-            if (db && doc.id) {
-                try {
-                    const docRef = db.collection('jobs').doc(job.id).collection('scans').doc(doc.id);
-                    const snapshot = await docRef.get();
-                    if (snapshot.exists) {
-                        const data = snapshot.data();
-                        if (data.image_blob) {
-                            const uint8Array = data.image_blob.toUint8Array();
-                            const blob = new Blob([uint8Array], { type: 'image/webp' });
-                            const url = URL.createObjectURL(blob);
-                            doc.src = url;
-                            return url;
-                        } else if (data.src) {
-                            doc.src = data.src;
-                            return data.src;
-                        }
-                    }
-                } catch (e) { console.error("Error fetching image:", e); }
-            }
-            return null;
-        }
-
         // --- 3. CORE UI FUNCTIONS ---
        function updateStorageUI() {
             const totalBytes = calculateTotalUsage();
@@ -661,16 +634,41 @@
         function renderDocumentList(job) {
             const list = document.getElementById('document-list');
             const emptyState = document.getElementById('empty-docs');
-            if (!job.documents || job.documents.length === 0) { list.innerHTML = ''; emptyState.classList.remove('hidden'); return; }
+            
+            if (!job.documents || job.documents.length === 0) { 
+                list.innerHTML = ''; 
+                emptyState.classList.remove('hidden'); 
+                return; 
+            }
             emptyState.classList.add('hidden');
             
-            list.innerHTML = job.documents.map(doc => {
+            // SORTING LOGIC
+            const sortWeights = {
+                'Quotation': 1,
+                'Purchase Request': 2,
+                'Purchase Order': 3,
+                'Service Report': 4,
+                'Delivery Order': 5,
+                'Invoice': 6,
+                'Permit to Work': 7,
+                'Other': 99 
+            };
+
+            const sortedDocs = [...job.documents].sort((a, b) => {
+                const weightA = sortWeights[a.docCategory] || 99;
+                const weightB = sortWeights[b.docCategory] || 99;
+                if (weightA !== weightB) return weightA - weightB;
+                return b.id.localeCompare(a.id); 
+            });
+
+            list.innerHTML = sortedDocs.map(doc => {
                 let icon = 'file-text';
                 if (doc.type === 'img' || doc.type === 'scan') icon = 'image';
                 if (doc.type === 'pdf') icon = 'file';
-                const isPO = doc.docCategory === 'Purchase Order';
                 
-                // CLEAN NAME: Remove .webp or .png extensions for display
+                // CHANGED: Identify Delivery Order instead of PO
+                const isDO = doc.docCategory === 'Delivery Order';
+                
                 const displayName = doc.name.replace(/\.[^/.]+$/, "");
 
                 const actionButtons = isViewingArchive 
@@ -688,15 +686,15 @@
                     <div class="flex items-center gap-3">
                         <div class="w-10 h-10 rounded bg-gray-900 flex items-center justify-center text-gray-400 relative group-hover:text-white transition-colors">
                             <i data-lucide="${icon}" class="w-5 h-5"></i>
-                            ${doc.isSigned ? '<div class="absolute -bottom-1 -right-1 bg-emerald-500 rounded-full p-0.5 border border-gray-900"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4"><polyline points="20 6 9 17 4 12"></polyline></svg></div>' : (isPO ? '<div class="absolute -top-1 -right-1 w-3 h-3 bg-yellow-500 rounded-full border border-gray-900"></div>' : '')}
+                            ${doc.isSigned ? '<div class="absolute -bottom-1 -right-1 bg-emerald-500 rounded-full p-0.5 border border-gray-900"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4"><polyline points="20 6 9 17 4 12"></polyline></svg></div>' : (isDO ? '<div class="absolute -top-1 -right-1 w-3 h-3 bg-yellow-500 rounded-full border border-gray-900"></div>' : '')}
                         </div>
                         <div>
                             <div class="flex items-center gap-2 mb-0.5">
                                 <p class="text-sm font-medium text-gray-200 group-hover:text-emerald-400 transition-colors">${displayName}</p>
                             </div>
                             <div class="flex items-center gap-1">
+                                <span class="text-[9px] px-1.5 py-0.5 rounded border border-gray-600/50 text-gray-400 uppercase font-bold">${doc.docCategory}</span>
                                 ${metaHtml}
-                                <span class="text-[10px] text-gray-500">${doc.size || ''}</span>
                             </div>
                         </div>
                     </div>
@@ -1144,7 +1142,7 @@
                 const job = jobs.find(j => j.id === currentJobId);
                 const newStatus = getJobStatus(job);
                 if (newStatus === 'Completed') {
-                     setTimeout(() => alert("🎉 Job Completed! PO is signed."), 200);
+                     setTimeout(() => alert("🎉 Job Completed! DO is signed."), 200);
                 }
 
             } catch (err) {
@@ -1416,6 +1414,7 @@
     </script>
 </body>
 </html>
+
 
 
 
