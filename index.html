@@ -120,22 +120,28 @@
     </main>
 
     <div id="view-job-details" class="fixed inset-0 bg-gray-900 z-40 hidden flex flex-col pt-16 hardware-accel">
-        <div class="h-16 flex items-center gap-4 px-4 border-b border-gray-800 bg-gray-900/50 backdrop-blur shrink-0">
+       <div class="h-16 flex items-center gap-4 px-4 border-b border-gray-800 bg-gray-900/50 backdrop-blur shrink-0">
             <button onclick="closeJobDetails()" class="p-2 -ml-2 text-gray-400 hover:text-white">
                 <i data-lucide="arrow-left"></i>
             </button>
-            <div class="flex-1">
-                <h2 id="detail-client" class="font-bold text-lg leading-tight text-white">Client Name</h2>
+            <div class="flex-1 overflow-hidden">
+                <h2 id="detail-client" class="font-bold text-lg leading-tight text-white truncate">Client Name</h2>
                 <div class="flex items-center gap-2">
                     <span id="detail-id" class="text-xs font-mono text-emerald-400">#ID</span>
                     <span id="detail-status" class="text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Status</span>
                     <span id="detail-archive-badge" class="hidden text-[10px] px-1.5 py-0.5 rounded bg-purple-900/50 text-purple-300 border border-purple-800">ARCHIVED</span>
                 </div>
             </div>
-            <button onclick="downloadJobBundle()" class="p-2 text-red-400 hover:text-white bg-red-900/20 rounded-full border border-red-900/50 active:scale-95 transition-transform" title="Download All as PDF">
-                <i data-lucide="file-stack" class="w-5 h-5"></i>
-            </button>
-        </div>
+            
+            <div class="flex gap-2">
+                <button onclick="promptDelete(currentJobId, 'job')" class="p-2 text-red-400 hover:text-white bg-red-900/20 rounded-full border border-red-900/50 active:scale-95 transition-transform" title="Delete Entire Job">
+                    <i data-lucide="trash-2" class="w-5 h-5"></i>
+                </button>
+                
+                <button onclick="downloadJobBundle()" class="p-2 text-blue-400 hover:text-white bg-blue-900/20 rounded-full border border-blue-900/50 active:scale-95 transition-transform" title="Download All as PDF">
+                    <i data-lucide="file-stack" class="w-5 h-5"></i>
+                </button>
+            </div>
         
         <div class="flex-1 overflow-y-auto p-4 space-y-3" id="document-list"></div>
 
@@ -358,7 +364,7 @@
                 <div class="w-12 h-12 rounded-full bg-red-900/30 flex items-center justify-center mb-3">
                     <i data-lucide="trash-2" class="w-6 h-6 text-red-500"></i>
                 </div>
-                <h3 class="text-lg font-bold text-white">Delete Document?</h3>
+                <h3 id="delete-modal-title" class="text-lg font-bold text-white">Delete Item?</h3>
                 <p class="text-xs text-gray-400 mt-1">This action cannot be undone.</p>
             </div>
 
@@ -451,6 +457,7 @@
         let viewingDocId = null; // Track doc currently in lightbox
         let batchQueue = []; // Stores images for multi-page documents
         let isPdfBatch = false; // Track if we are processing a multi-page PDF
+        let pendingDeleteType = 'doc'; // 'doc' or 'job'
 
         // --- 2. HELPERS (Must be first) ---
         function parseSizeToBytes(sizeStr) {
@@ -723,11 +730,36 @@
             const titleInput = document.getElementById('new-job-title');
             const title = titleInput.value.trim();
             if (!title) return alert("Please enter a job title.");
-            const newId = 'J-' + Math.floor(1000 + Math.random() * 9000);
+            
+            // --- NEW: INCREMENTAL ID LOGIC ---
+            let maxId = 1000; // Default starting number (will result in J-1001)
+            
+            // 1. Combine active list and any loaded archives to find the true highest ID
+            const allKnownJobs = [...jobs, ...archivedJobs];
+            
+            if (allKnownJobs.length > 0) {
+                const ids = allKnownJobs.map(j => {
+                    // Remove "J-" and any other non-digits, then parse as integer
+                    const num = parseInt(j.id.replace(/\D/g, ''), 10); 
+                    return isNaN(num) ? 0 : num;
+                });
+                // Find the highest existing number
+                maxId = Math.max(...ids);
+            }
+            
+            // 2. Increment by 1
+            const nextIdNum = maxId + 1;
+            const newId = 'J-' + nextIdNum;
+            // ---------------------------------
+
             const dateStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
             
             const newJob = { id: newId, client: title, date: dateStr, documents: [] };
-            if (db) { db.collection('jobs').doc(newId).set(newJob).catch(e => console.error(e)); }
+            
+            // Save to Firestore
+            if (db) { 
+                db.collection('jobs').doc(newId).set(newJob).catch(e => console.error(e)); 
+            }
             
             closeNewJobModal();
         }
@@ -826,7 +858,7 @@
                     actionButtons += `<button onclick="event.stopPropagation(); editExistingDoc('${doc.id}')" class="p-2 text-blue-400 hover:text-white bg-blue-900/20 rounded border border-blue-900/50 mr-2"><i data-lucide="pen-tool" class="w-4 h-4"></i></button>`;
                     
                     // Delete Button (New)
-                    actionButtons += `<button onclick="event.stopPropagation(); promptDelete('${doc.id}')" class="p-2 text-red-400 hover:text-white bg-red-900/20 rounded border border-red-900/50"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`;
+                    actionButtons += `<button onclick="event.stopPropagation(); promptDelete('${doc.id}', 'doc')" class="p-2 text-red-400 hover:text-white bg-red-900/20 rounded border border-red-900/50"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`;
                 }
 
                 let metaHtml = '';
@@ -921,20 +953,32 @@
         // --- DELETE LOGIC ---
         let pendingDeleteId = null;
 
-        function promptDelete(docId) {
-            pendingDeleteId = docId;
+        function promptDelete(id, type = 'doc') {
+            pendingDeleteId = id;
+            pendingDeleteType = type; // Store the type
+            
             const modal = document.getElementById('delete-modal');
+            const title = document.getElementById('delete-modal-title');
             const input = document.getElementById('delete-confirmation-input');
             const btn = document.getElementById('btn-confirm-delete');
             
+            // Dynamic UI
+            if (type === 'job') {
+                title.textContent = "Delete Entire Job?";
+                title.classList.add('text-red-400');
+            } else {
+                title.textContent = "Delete Document?";
+                title.classList.remove('text-red-400');
+            }
+
             // Reset State
             input.value = '';
+            btn.innerHTML = '<span>Delete</span>'; // Reset loading state if any
             btn.disabled = true;
             btn.className = "flex-1 py-3 bg-gray-700 text-gray-500 font-bold rounded-xl transition-all cursor-not-allowed flex justify-center items-center gap-2";
             
             // Show Modal
             modal.classList.remove('hidden');
-            // Small delay for fade-in effect
             setTimeout(() => modal.classList.remove('opacity-0'), 10);
             setTimeout(() => input.focus(), 100);
         }
@@ -964,52 +1008,75 @@
         }
 
         async function executeDelete() {
-            if (!pendingDeleteId || !currentJobId) return;
+            if (!pendingDeleteId) return;
             
             const btn = document.getElementById('btn-confirm-delete');
             btn.innerHTML = '<div class="loader w-4 h-4 border-t-white"></div>';
             
             try {
-                // 1. Find the full document object from our local list
-                // We need the full object to remove it from the 'documents' array properly
-                const job = jobs.find(j => j.id === currentJobId);
-                const docToDelete = job.documents.find(d => d.id === pendingDeleteId);
-
-                if (!docToDelete) throw new Error("Document not found");
-
-                // 2. Database Operation
                 if (db) {
-                    const jobRef = db.collection('jobs').doc(currentJobId);
-                    
-                    // A. Remove from the 'documents' array metadata
-                    await jobRef.update({
-                        documents: firebase.firestore.FieldValue.arrayRemove(docToDelete)
-                    });
-
-                    // B. Delete the actual subcollection document (the binary data)
-                    await jobRef.collection('scans').doc(pendingDeleteId).delete();
+                    if (pendingDeleteType === 'job') {
+                        // === DELETE JOB LOGIC ===
+                        const jobRef = db.collection('jobs').doc(pendingDeleteId);
+                        
+                        // 1. Delete all sub-documents (scans) to free storage
+                        // Note: Client-side batch delete is limited to 500 ops, should be fine here.
+                        const snapshot = await jobRef.collection('scans').get();
+                        const batch = db.batch();
+                        
+                        snapshot.docs.forEach(doc => {
+                            batch.delete(doc.ref);
+                        });
+                        
+                        // 2. Delete the parent job document
+                        batch.delete(jobRef);
+                        
+                        await batch.commit();
+                        
+                    } else {
+                        // === DELETE DOCUMENT LOGIC (Existing) ===
+                        const jobRef = db.collection('jobs').doc(currentJobId);
+                        const job = jobs.find(j => j.id === currentJobId);
+                        const docToDelete = job.documents.find(d => d.id === pendingDeleteId);
+                        
+                        if (docToDelete) {
+                            await jobRef.update({
+                                documents: firebase.firestore.FieldValue.arrayRemove(docToDelete)
+                            });
+                            await jobRef.collection('scans').doc(pendingDeleteId).delete();
+                        }
+                    }
                 } else {
-                    // Offline Fallback
-                    const idx = job.documents.findIndex(d => d.id === pendingDeleteId);
-                    if (idx > -1) job.documents.splice(idx, 1);
+                    // OFFLINE LOGIC
+                    if (pendingDeleteType === 'job') {
+                        // Just filter it out of the local list
+                        jobs = jobs.filter(j => j.id !== pendingDeleteId);
+                        renderJobs();
+                    } else {
+                        const job = jobs.find(j => j.id === currentJobId);
+                        const idx = job.documents.findIndex(d => d.id === pendingDeleteId);
+                        if (idx > -1) job.documents.splice(idx, 1);
+                    }
                 }
 
                 // 3. UI Cleanup
                 closeDeleteModal();
                 
-                // If viewing details, refresh the list immediately
-                if (currentJobId) {
-                    // Re-fetch local data reference to ensure we render correct state
-                    const updatedJob = jobs.find(j => j.id === currentJobId);
-                    // If we are offline, we manually updated 'job', so it's fine. 
-                    // If online, the snapshot listener in loadJobsFromFirestore will auto-update, 
-                    // but we call this for instant feedback:
-                    renderDocumentList(updatedJob);
+                if (pendingDeleteType === 'job') {
+                    // If we deleted the job, close the details view
+                    closeJobDetails();
+                    alert("Job deleted successfully.");
+                } else {
+                    // If we deleted a doc, just refresh the list
+                    if (currentJobId) {
+                        const updatedJob = jobs.find(j => j.id === currentJobId);
+                        renderDocumentList(updatedJob);
+                    }
                 }
 
             } catch (err) {
                 console.error("Delete failed:", err);
-                alert("Failed to delete document.");
+                alert("Failed to delete. Please check connection.");
                 closeDeleteModal();
             }
         }
@@ -1940,6 +2007,7 @@
     </script>
 </body>
 </html>
+
 
 
 
