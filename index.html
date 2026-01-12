@@ -158,7 +158,7 @@
             </button>
             <button onclick="triggerDocUploadFromMenu()" class="flex items-center gap-4 p-4 bg-gray-700/50 hover:bg-gray-700 rounded-xl border border-gray-600 transition-colors group">
                 <div class="w-12 h-12 rounded-full bg-blue-900/30 flex items-center justify-center text-blue-400 group-hover:bg-blue-500 group-hover:text-white transition-colors"><i data-lucide="image" class="w-6 h-6"></i></div>
-                <div class="text-left"><p class="font-bold text-gray-200">Upload Image</p><p class="text-xs text-gray-400">From gallery or file system</p></div>
+                <div class="text-left"><p class="font-bold text-gray-200">Upload Image or PDF</p><p class="text-xs text-gray-400">From gallery or file system</p></div>
             </button>
             <button onclick="handlePasteClick()" class="flex items-center gap-4 p-4 bg-gray-700/50 hover:bg-gray-700 rounded-xl border border-gray-600 transition-colors group">
                 <div class="w-12 h-12 rounded-full bg-purple-900/30 flex items-center justify-center text-purple-400 group-hover:bg-purple-500 group-hover:text-white transition-colors"><i data-lucide="clipboard" class="w-6 h-6"></i></div>
@@ -348,6 +348,33 @@
             <div class="flex gap-3">
                 <button id="btn-cancel-save" onclick="closeSaveModal()" class="flex-1 py-3 text-gray-400 font-medium hover:text-white rounded-lg hover:bg-gray-700/50 transition-colors">Cancel</button>
                 <button id="btn-confirm-save" onclick="confirmSave()" class="flex-1 py-3 bg-emerald-500 text-white font-bold rounded-lg shadow-lg shadow-emerald-500/20 active:scale-95 transition-transform flex justify-center items-center gap-2"><span>Save</span><i data-lucide="check" class="w-4 h-4"></i></button>
+            </div>
+        </div>
+    </div>
+
+    <div id="delete-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center bg-black/90 backdrop-blur-sm px-4 opacity-0 transition-opacity duration-200">
+        <div class="bg-gray-800 p-6 rounded-2xl w-full max-w-xs border border-red-900/50 shadow-2xl flex flex-col gap-4">
+            <div class="flex flex-col items-center text-center">
+                <div class="w-12 h-12 rounded-full bg-red-900/30 flex items-center justify-center mb-3">
+                    <i data-lucide="trash-2" class="w-6 h-6 text-red-500"></i>
+                </div>
+                <h3 class="text-lg font-bold text-white">Delete Document?</h3>
+                <p class="text-xs text-gray-400 mt-1">This action cannot be undone.</p>
+            </div>
+
+            <div class="bg-gray-900/50 p-3 rounded-lg border border-red-500/20">
+                <label class="block text-[10px] text-gray-500 uppercase tracking-wider font-bold mb-1.5 text-center">Type "<span class="text-red-400 select-all">delete</span>" to confirm</label>
+                <input type="text" id="delete-confirmation-input" 
+                       class="w-full bg-gray-800 text-white text-center font-bold border border-gray-600 rounded-lg p-2 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none transition-all uppercase placeholder-gray-600"
+                       placeholder="DELETE"
+                       oninput="validateDeleteInput(this)">
+            </div>
+
+            <div class="flex gap-3 mt-1">
+                <button onclick="closeDeleteModal()" class="flex-1 py-3 text-gray-400 font-medium hover:text-white rounded-xl hover:bg-gray-700 transition-colors">Cancel</button>
+                <button id="btn-confirm-delete" onclick="executeDelete()" disabled class="flex-1 py-3 bg-gray-700 text-gray-500 font-bold rounded-xl transition-all cursor-not-allowed flex justify-center items-center gap-2">
+                    <span>Delete</span>
+                </button>
             </div>
         </div>
     </div>
@@ -791,11 +818,16 @@
                 
                 const displayName = doc.name.replace(/\.[^/.]+$/, "");
 
-                const actionButtons = isViewingArchive 
-                    ? `<button onclick="event.stopPropagation()" class="p-2 text-gray-500 cursor-not-allowed border border-gray-700 rounded"><i data-lucide="lock" class="w-4 h-4"></i></button>`
-                    : `<button onclick="event.stopPropagation(); editExistingDoc('${doc.id}')" class="p-2 text-blue-400 hover:text-white bg-blue-900/20 rounded border border-blue-900/50"><i data-lucide="pen-tool" class="w-4 h-4"></i></button>`;
-
-                let metaHtml = '';
+                let actionButtons = '';
+                if (isViewingArchive) {
+                    actionButtons = `<button onclick="event.stopPropagation()" class="p-2 text-gray-500 cursor-not-allowed border border-gray-700 rounded"><i data-lucide="lock" class="w-4 h-4"></i></button>`;
+                } else {
+                    // Edit Button
+                    actionButtons += `<button onclick="event.stopPropagation(); editExistingDoc('${doc.id}')" class="p-2 text-blue-400 hover:text-white bg-blue-900/20 rounded border border-blue-900/50 mr-2"><i data-lucide="pen-tool" class="w-4 h-4"></i></button>`;
+                    
+                    // Delete Button (New)
+                    actionButtons += `<button onclick="event.stopPropagation(); promptDelete('${doc.id}')" class="p-2 text-red-400 hover:text-white bg-red-900/20 rounded border border-red-900/50"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`;
+                }
                 if (doc.smartData) {
                     if (doc.smartData.id) metaHtml += `<span class="text-[9px] text-emerald-300 bg-emerald-900/40 px-1.5 py-0.5 rounded mr-1 font-mono tracking-wide border border-emerald-800">${doc.smartData.id}</span>`;
                     if (doc.smartData.amount) metaHtml += `<span class="text-[9px] text-yellow-300 bg-yellow-900/40 px-1.5 py-0.5 rounded font-mono border border-yellow-800">\$${doc.smartData.amount}</span>`;
@@ -884,6 +916,102 @@
             });
         }
 
+        // --- DELETE LOGIC ---
+        let pendingDeleteId = null;
+
+        function promptDelete(docId) {
+            pendingDeleteId = docId;
+            const modal = document.getElementById('delete-modal');
+            const input = document.getElementById('delete-confirmation-input');
+            const btn = document.getElementById('btn-confirm-delete');
+            
+            // Reset State
+            input.value = '';
+            btn.disabled = true;
+            btn.className = "flex-1 py-3 bg-gray-700 text-gray-500 font-bold rounded-xl transition-all cursor-not-allowed flex justify-center items-center gap-2";
+            
+            // Show Modal
+            modal.classList.remove('hidden');
+            // Small delay for fade-in effect
+            setTimeout(() => modal.classList.remove('opacity-0'), 10);
+            setTimeout(() => input.focus(), 100);
+        }
+
+        function closeDeleteModal() {
+            const modal = document.getElementById('delete-modal');
+            modal.classList.add('opacity-0');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                pendingDeleteId = null;
+            }, 200);
+        }
+
+        function validateDeleteInput(input) {
+            const btn = document.getElementById('btn-confirm-delete');
+            const val = input.value.trim().toLowerCase();
+            
+            if (val === 'delete') {
+                // Enable Button (Turn Red)
+                btn.disabled = false;
+                btn.className = "flex-1 py-3 bg-red-600 text-white hover:bg-red-500 font-bold rounded-xl shadow-lg shadow-red-900/40 active:scale-95 transition-all flex justify-center items-center gap-2";
+            } else {
+                // Disable Button (Turn Gray)
+                btn.disabled = true;
+                btn.className = "flex-1 py-3 bg-gray-700 text-gray-500 font-bold rounded-xl transition-all cursor-not-allowed flex justify-center items-center gap-2";
+            }
+        }
+
+        async function executeDelete() {
+            if (!pendingDeleteId || !currentJobId) return;
+            
+            const btn = document.getElementById('btn-confirm-delete');
+            btn.innerHTML = '<div class="loader w-4 h-4 border-t-white"></div>';
+            
+            try {
+                // 1. Find the full document object from our local list
+                // We need the full object to remove it from the 'documents' array properly
+                const job = jobs.find(j => j.id === currentJobId);
+                const docToDelete = job.documents.find(d => d.id === pendingDeleteId);
+
+                if (!docToDelete) throw new Error("Document not found");
+
+                // 2. Database Operation
+                if (db) {
+                    const jobRef = db.collection('jobs').doc(currentJobId);
+                    
+                    // A. Remove from the 'documents' array metadata
+                    await jobRef.update({
+                        documents: firebase.firestore.FieldValue.arrayRemove(docToDelete)
+                    });
+
+                    // B. Delete the actual subcollection document (the binary data)
+                    await jobRef.collection('scans').doc(pendingDeleteId).delete();
+                } else {
+                    // Offline Fallback
+                    const idx = job.documents.findIndex(d => d.id === pendingDeleteId);
+                    if (idx > -1) job.documents.splice(idx, 1);
+                }
+
+                // 3. UI Cleanup
+                closeDeleteModal();
+                
+                // If viewing details, refresh the list immediately
+                if (currentJobId) {
+                    // Re-fetch local data reference to ensure we render correct state
+                    const updatedJob = jobs.find(j => j.id === currentJobId);
+                    // If we are offline, we manually updated 'job', so it's fine. 
+                    // If online, the snapshot listener in loadJobsFromFirestore will auto-update, 
+                    // but we call this for instant feedback:
+                    renderDocumentList(updatedJob);
+                }
+
+            } catch (err) {
+                console.error("Delete failed:", err);
+                alert("Failed to delete document.");
+                closeDeleteModal();
+            }
+        }
+        
         async function saveDocumentRename() {
             if (!viewingDocId || !currentJobId) return;
 
@@ -1810,6 +1938,7 @@
     </script>
 </body>
 </html>
+
 
 
 
