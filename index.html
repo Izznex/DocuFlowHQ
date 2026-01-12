@@ -817,6 +817,37 @@
             setTimeout(() => { document.getElementById('lightbox-img').src = ''; }, 200);
         }
 
+        async function ensureDocImageLoaded(job, doc) {
+            // 1. If we already have the image in memory, return it
+            if (doc.src && doc.src.length > 100) return doc.src;
+            
+            // 2. If viewing an archive, we can't fetch from DB
+            if (isViewingArchive) return null;
+            
+            // 3. Fetch from Firebase
+            if (db && doc.id) {
+                try {
+                    const docRef = db.collection('jobs').doc(job.id).collection('scans').doc(doc.id);
+                    const snapshot = await docRef.get();
+                    if (snapshot.exists) {
+                        const data = snapshot.data();
+                        if (data.image_blob) {
+                            // Convert Firebase Blob to Object URL
+                            const uint8Array = data.image_blob.toUint8Array();
+                            const blob = new Blob([uint8Array], { type: 'image/webp' });
+                            const url = URL.createObjectURL(blob);
+                            doc.src = url; // Cache it locally
+                            return url;
+                        } else if (data.src) {
+                            doc.src = data.src;
+                            return data.src;
+                        }
+                    }
+                } catch (e) { console.error("Error fetching image:", e); }
+            }
+            return null;
+        }
+
         function openScanner() {
             editingDocId = null;
             document.getElementById('view-scanner').classList.remove('hidden');
@@ -1414,6 +1445,7 @@
     </script>
 </body>
 </html>
+
 
 
 
