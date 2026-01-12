@@ -295,6 +295,7 @@
         let isScanning = false;
         let currentFilterIndex = 0; 
         let currentSearchTerm = "";
+        let editingDocId = null;
 
         // --- 2. HELPERS (Must be first) ---
         function parseSizeToBytes(sizeStr) {
@@ -629,6 +630,7 @@
         // --- SCANNER / EDITOR ---
         function editExistingDoc(docId) {
             if(isViewingArchive) return;
+            editingDocId = docId;
             const job = jobs.find(j => j.id === currentJobId);
             const doc = job.documents.find(d => d.id === docId);
             if(!doc) return;
@@ -645,6 +647,7 @@
         }
 
         function openScanner() {
+            editingDocId = null;
             document.getElementById('view-scanner').classList.remove('hidden');
             const feedback = document.getElementById('scan-feedback');
             feedback.classList.remove('hidden'); feedback.classList.add('flex');
@@ -672,6 +675,7 @@
         }
         function triggerDocUpload() { document.getElementById('doc-upload-input').click(); }
         function handleDocUpload(input) {
+            editingDocId = null;
             if (input.files && input.files[0]) {
                 const file = input.files[0];
                 if (!file.type.startsWith('image/')) { alert("⚠️ Restricted Format\n\nOnly Image files (JPG, PNG) are allowed."); input.value = ''; return; }
@@ -718,6 +722,7 @@
         }
 
         async function handlePasteClick() {
+            editingDocId = null;
             try {
                 const items = await navigator.clipboard.read();
                 for (const item of items) {
@@ -849,12 +854,29 @@
                 const cleanedText = text.replace(/\n/g, " ").trim();
                 const smartData = parseSmartMetadata(cleanedText);
 
-                let finalDocName = `Scan_${Date.now().toString().slice(-4)}.webp`;
-                if (smartData.id) {
-                    const safeId = smartData.id.replace(/[^a-z0-9\-]/gi, '_');
-                    finalDocName = `${category}_${safeId}.webp`;
+                // 1. Determine ID and Name
+                let finalDocId, finalDocName;
+
+                if (editingDocId) {
+                    // EDIT MODE: Keep ID, maybe update name
+                    finalDocId = editingDocId;
+                    if (smartData.id) {
+                         const safeId = smartData.id.replace(/[^a-z0-9\-]/gi, '_');
+                         finalDocName = `${category}_${safeId}.webp`;
+                    } else {
+                         // Keep original name if no smart ID found, or update timestamp? 
+                         // Let's update timestamp to show it was modified
+                         finalDocName = `${category}_${Date.now().toString().slice(-4)}.webp`;
+                    }
                 } else {
-                    finalDocName = `${category}_${Date.now().toString().slice(-4)}.webp`;
+                    // NEW MODE
+                    finalDocId = 'new_' + Date.now();
+                    if (smartData.id) {
+                        const safeId = smartData.id.replace(/[^a-z0-9\-]/gi, '_');
+                        finalDocName = `${category}_${safeId}.webp`;
+                    } else {
+                        finalDocName = `${category}_${Date.now().toString().slice(-4)}.webp`;
+                    }
                 }
 
                 const blob = await (await fetch(dataURL)).blob();
@@ -865,13 +887,14 @@
                 const sizeMb = (blob.size / (1024*1024)).toFixed(2);
                 const sizeStr = sizeMb < 1 ? (blob.size/1024).toFixed(0) + 'KB' : sizeMb + 'MB';
 
+                // 2. Build the Document Object
                 const newDoc = {
-                    id: 'new_' + Date.now(), 
+                    id: finalDocId, 
                     name: finalDocName,
                     docCategory: category,
                     type: 'scan',
                     size: sizeStr,
-                    date: 'Just Now',
+                    date: editingDocId ? 'Updated Now' : 'Just Now', // Visual feedback
                     ocrText: cleanedText,
                     smartData: smartData 
                 };
@@ -881,26 +904,58 @@
                      delete cloudDocMetadata.src; 
                      cloudDocMetadata.hasBinary = true; 
                      
-                     db.collection('jobs').doc(currentJobId).update({
-                         documents: firebase.firestore.FieldValue.arrayUnion(cloudDocMetadata)
-                     });
+                     if (editingDocId) {
+                        // UPDATE EXISTING IN FIREBASE
+                        // A. Update the binary blob (easy)
+                        const scanData = { 
+                             image_blob: firestoreBlob, 
+                             timestamp: Date.now(), 
+                             name: finalDocName 
+                        };
+                        await db.collection('jobs').doc(currentJobId).collection('scans').doc(finalDocId).set(scanData);
 
-                     const scanData = { 
-                         image_blob: firestoreBlob, 
-                         timestamp: Date.now(), 
-                         name: finalDocName 
-                     };
-                     
-                     db.collection('jobs').doc(currentJobId).collection('scans').doc(newDoc.id).set(scanData)
-                       .catch(e => console.error("Error saving binary:", e));
+                        // B. Update the array (tricky - read, modify, write)
+                        const jobRef = db.collection('jobs').doc(currentJobId);
+                        const jobSnap = await jobRef.get();
+                        let currentDocs = jobSnap.data().documents;
+                        const idx = currentDocs.findIndex(d => d.id === editingDocId);
+                        
+                        if (idx !== -1) {
+                            currentDocs[idx] = cloudDocMetadata; // Replace old with new
+                            await jobRef.update({ documents: currentDocs });
+                        }
+
+                     } else {
+                        // CREATE NEW IN FIREBASE
+                        await db.collection('jobs').doc(currentJobId).update({
+                            documents: firebase.firestore.FieldValue.arrayUnion(cloudDocMetadata)
+                        });
+                        const scanData = { 
+                            image_blob: firestoreBlob, 
+                            timestamp: Date.now(), 
+                            name: finalDocName 
+                        };
+                        await db.collection('jobs').doc(currentJobId).collection('scans').doc(finalDocId).set(scanData);
+                     }
+
                 } else {
+                    // LOCAL ONLY
                     const job = jobs.find(j => j.id === currentJobId);
                     newDoc.src = dataURL;
-                    job.documents.push(newDoc);
+                    
+                    if (editingDocId) {
+                        const idx = job.documents.findIndex(d => d.id === editingDocId);
+                        if (idx !== -1) job.documents[idx] = newDoc;
+                    } else {
+                        job.documents.push(newDoc);
+                    }
                     renderJobs(); 
                 }
 
                 closeSaveModal(); cancelEdit(); 
+
+                // Reset editing state
+                editingDocId = null;
 
                 const job = jobs.find(j => j.id === currentJobId);
                 const newStatus = getJobStatus(job);
@@ -1137,6 +1192,7 @@
     </script>
 </body>
 </html>
+
 
 
 
