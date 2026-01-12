@@ -255,6 +255,10 @@
                 </select>
                 <i data-lucide="chevron-down" class="absolute right-3 top-3.5 text-gray-400 w-5 h-5 pointer-events-none"></i>
             </div>
+            <div class="flex items-center gap-3 mb-4 bg-gray-900/50 p-3 rounded-lg border border-gray-700 cursor-pointer" onclick="document.getElementById('doc-signed-check').click()">
+                <input type="checkbox" id="doc-signed-check" class="w-5 h-5 text-emerald-500 rounded focus:ring-emerald-500 border-gray-600 bg-gray-800 accent-emerald-500">
+                <label for="doc-signed-check" class="text-sm text-gray-300 font-medium cursor-pointer select-none">Document is Signed & Stamped</label>
+            </div>
             <div id="ocr-loading" class="hidden flex items-center justify-center gap-3 mb-6 p-3 bg-gray-900/50 rounded-lg border border-gray-700">
                 <div class="loader"></div>
                 <div class="flex flex-col"><span class="text-xs text-emerald-400 animate-pulse font-bold">Smart Analysis Running...</span><span class="text-[10px] text-gray-500">Detecting IDs, Dates & Amounts</span></div>
@@ -342,10 +346,11 @@
             return totalBytes;
         }
 
-        function getJobStatus(job) {
+       function getJobStatus(job) {
             if(!job || !job.documents) return 'Open';
-            const hasPO = job.documents.some(d => d.docCategory === 'Purchase Order');
-            return hasPO ? 'Completed' : 'Open';
+            // Logic: Job is complete ONLY if a Purchase Order exists AND it is marked as Signed
+            const hasSignedPO = job.documents.some(d => d.docCategory === 'Purchase Order' && d.isSigned === true);
+            return hasSignedPO ? 'Completed' : 'Open';
         }
 
         function getDocBadgesHTML(documents) {
@@ -924,55 +929,41 @@
         async function confirmSave() {
             const categorySelect = document.getElementById('doc-type-select');
             const category = categorySelect.value;
+            const isSigned = document.getElementById('doc-signed-check').checked; // <--- GET CHECKBOX VALUE
             
             // UI Feedback
             document.getElementById('ocr-loading').classList.remove('hidden');
             document.getElementById('btn-cancel-save').classList.add('hidden');
             document.getElementById('btn-confirm-save').classList.add('hidden');
 
-            // === 1. IMAGE OPTIMIZATION (Quality vs Size) ===
-            // Goal: High clarity for text, but strictly under 1MB.
-            // Strategy: Cap longest side to 2500px (approx 300DPI) and use High Quality WebP.
+            // === 1. IMAGE OPTIMIZATION ===
             const MAX_DIMENSION = 2500; 
             let finalMultiplier = 1;
-
             if (fabricCanvas.backgroundImage) {
                 const canvasW = fabricCanvas.width;
                 const canvasH = fabricCanvas.height;
                 const longestSide = Math.max(canvasW, canvasH);
-                // Calculate scale factor to hit exactly 2500px
                 finalMultiplier = MAX_DIMENSION / longestSide;
             }
-
-            // Generate optimized image (WebP q=0.92 is roughly 500KB-800KB for this size)
-            const dataURL = fabricCanvas.toDataURL({ 
-                format: 'webp', 
-                quality: 0.92, 
-                multiplier: finalMultiplier 
-            });
+            const dataURL = fabricCanvas.toDataURL({ format: 'webp', quality: 0.92, multiplier: finalMultiplier });
 
             try {
-                // 2. OCR & Analysis
+                // 2. OCR
                 const { data: { text } } = await Tesseract.recognize(dataURL, 'eng');
                 const cleanedText = text.replace(/\n/g, " ").trim();
                 const smartData = parseSmartMetadata(cleanedText);
 
-                // 3. Determine ID and Name (Edit vs Create Logic)
+                // 3. ID Logic
                 let finalDocId, finalDocName;
-
                 if (editingDocId) {
-                    // EDIT MODE: Reuse existing ID
                     finalDocId = editingDocId;
-                    // Optional: Update name if OCR found a new ID, otherwise keep simplified
                     if (smartData.id) {
                          const safeId = smartData.id.replace(/[^a-z0-9\-]/gi, '_');
                          finalDocName = `${category}_${safeId}.webp`;
                     } else {
-                         // Update timestamp in name to force refresh
                          finalDocName = `${category}_${Date.now().toString().slice(-4)}.webp`;
                     }
                 } else {
-                    // CREATE MODE: Generate New ID
                     finalDocId = 'new_' + Date.now();
                     if (smartData.id) {
                         const safeId = smartData.id.replace(/[^a-z0-9\-]/gi, '_');
@@ -982,16 +973,14 @@
                     }
                 }
 
-                // 4. Prepare File Blob
                 const blob = await (await fetch(dataURL)).blob();
                 const arrayBuffer = await blob.arrayBuffer();
                 const uint8Array = new Uint8Array(arrayBuffer);
                 const firestoreBlob = firebase.firestore.Blob.fromUint8Array(uint8Array);
-
                 const sizeMb = (blob.size / (1024*1024)).toFixed(2);
                 const sizeStr = sizeMb < 1 ? (blob.size/1024).toFixed(0) + 'KB' : sizeMb + 'MB';
 
-                // 5. Create Document Metadata
+                // 4. Create Metadata
                 const newDoc = {
                     id: finalDocId, 
                     name: finalDocName,
@@ -1000,54 +989,38 @@
                     size: sizeStr,
                     date: editingDocId ? 'Updated Now' : 'Just Now',
                     ocrText: cleanedText,
-                    smartData: smartData 
+                    smartData: smartData,
+                    isSigned: isSigned // <--- SAVE THE STATUS
                 };
 
-                // 6. Save to Storage (Cloud or Local)
+                // 5. Save to DB
                 if (db) {
                      const cloudDocMetadata = { ...newDoc };
                      delete cloudDocMetadata.src; 
                      cloudDocMetadata.hasBinary = true; 
                      
                      if (editingDocId) {
-                        // [CLOUD EDIT]
-                        // A. Overwrite the Binary
-                        const scanData = { 
-                             image_blob: firestoreBlob, 
-                             timestamp: Date.now(), 
-                             name: finalDocName 
-                        };
+                        const scanData = { image_blob: firestoreBlob, timestamp: Date.now(), name: finalDocName };
                         await db.collection('jobs').doc(currentJobId).collection('scans').doc(finalDocId).set(scanData);
 
-                        // B. Update the List
                         const jobRef = db.collection('jobs').doc(currentJobId);
                         const jobSnap = await jobRef.get();
                         let currentDocs = jobSnap.data().documents;
                         const idx = currentDocs.findIndex(d => d.id === editingDocId);
-                        
                         if (idx !== -1) {
                             currentDocs[idx] = cloudDocMetadata; 
                             await jobRef.update({ documents: currentDocs });
                         }
-
                      } else {
-                        // [CLOUD CREATE]
                         await db.collection('jobs').doc(currentJobId).update({
                             documents: firebase.firestore.FieldValue.arrayUnion(cloudDocMetadata)
                         });
-                        const scanData = { 
-                            image_blob: firestoreBlob, 
-                            timestamp: Date.now(), 
-                            name: finalDocName 
-                        };
+                        const scanData = { image_blob: firestoreBlob, timestamp: Date.now(), name: finalDocName };
                         await db.collection('jobs').doc(currentJobId).collection('scans').doc(finalDocId).set(scanData);
                      }
-
                 } else {
-                    // [OFFLINE/LOCAL]
                     const job = jobs.find(j => j.id === currentJobId);
                     newDoc.src = dataURL;
-                    
                     if (editingDocId) {
                         const idx = job.documents.findIndex(d => d.id === editingDocId);
                         if (idx !== -1) job.documents[idx] = newDoc;
@@ -1057,15 +1030,16 @@
                     renderJobs(); 
                 }
 
-                // 7. Cleanup & Close
                 closeSaveModal(); cancelEdit(); 
-                editingDocId = null; // Reset mode
+                editingDocId = null;
+                document.getElementById('doc-signed-check').checked = false; // Reset checkbox
 
-                // Check for Auto-Complete Status
+                // Check Status Logic
                 const job = jobs.find(j => j.id === currentJobId);
                 const newStatus = getJobStatus(job);
-                if (category === 'Purchase Order' && newStatus === 'Completed') {
-                    alert("Purchase Order Detected! Job marked as Completed.");
+                if (newStatus === 'Completed') {
+                    // Slight delay to allow UI to update
+                    setTimeout(() => alert("🎉 Job Completed! PO is signed."), 200);
                 }
 
             } catch (err) {
@@ -1297,6 +1271,7 @@
     </script>
 </body>
 </html>
+
 
 
 
