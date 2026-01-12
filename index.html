@@ -781,15 +781,15 @@
             const text = new fabric.IText('Tap to Edit', {
                 left: fabricCanvas.width / 2,
                 top: fabricCanvas.height / 2,
-                fontFamily: 'sans-serif',
-                fill: '#ef4444', // Bright red so it stands out
+                fontFamily: 'Calibri',
+                fill: '#000000', // Bright red so it stands out
                 fontSize: 24,
                 fontWeight: 'bold',
                 originX: 'center',
                 originY: 'center',
-                cornerColor: 'red',
+                cornerColor: 'blue',
                 cornerStyle: 'circle',
-                borderColor: 'red',
+                borderColor: 'blue',
                 transparentCorners: false
             });
 
@@ -925,34 +925,54 @@
             const categorySelect = document.getElementById('doc-type-select');
             const category = categorySelect.value;
             
+            // UI Feedback
             document.getElementById('ocr-loading').classList.remove('hidden');
             document.getElementById('btn-cancel-save').classList.add('hidden');
             document.getElementById('btn-confirm-save').classList.add('hidden');
 
-            const multiplier = 1 / (fabricCanvas.backgroundImage ? fabricCanvas.backgroundImage.scaleX : 1);
-            const dataURL = fabricCanvas.toDataURL({ format: 'webp', quality: 0.8, multiplier: multiplier });
-            
+            // === 1. IMAGE OPTIMIZATION (Quality vs Size) ===
+            // Goal: High clarity for text, but strictly under 1MB.
+            // Strategy: Cap longest side to 2500px (approx 300DPI) and use High Quality WebP.
+            const MAX_DIMENSION = 2500; 
+            let finalMultiplier = 1;
+
+            if (fabricCanvas.backgroundImage) {
+                const canvasW = fabricCanvas.width;
+                const canvasH = fabricCanvas.height;
+                const longestSide = Math.max(canvasW, canvasH);
+                // Calculate scale factor to hit exactly 2500px
+                finalMultiplier = MAX_DIMENSION / longestSide;
+            }
+
+            // Generate optimized image (WebP q=0.92 is roughly 500KB-800KB for this size)
+            const dataURL = fabricCanvas.toDataURL({ 
+                format: 'webp', 
+                quality: 0.92, 
+                multiplier: finalMultiplier 
+            });
+
             try {
+                // 2. OCR & Analysis
                 const { data: { text } } = await Tesseract.recognize(dataURL, 'eng');
                 const cleanedText = text.replace(/\n/g, " ").trim();
                 const smartData = parseSmartMetadata(cleanedText);
 
-                // 1. Determine ID and Name
+                // 3. Determine ID and Name (Edit vs Create Logic)
                 let finalDocId, finalDocName;
 
                 if (editingDocId) {
-                    // EDIT MODE: Keep ID, maybe update name
+                    // EDIT MODE: Reuse existing ID
                     finalDocId = editingDocId;
+                    // Optional: Update name if OCR found a new ID, otherwise keep simplified
                     if (smartData.id) {
                          const safeId = smartData.id.replace(/[^a-z0-9\-]/gi, '_');
                          finalDocName = `${category}_${safeId}.webp`;
                     } else {
-                         // Keep original name if no smart ID found, or update timestamp? 
-                         // Let's update timestamp to show it was modified
+                         // Update timestamp in name to force refresh
                          finalDocName = `${category}_${Date.now().toString().slice(-4)}.webp`;
                     }
                 } else {
-                    // NEW MODE
+                    // CREATE MODE: Generate New ID
                     finalDocId = 'new_' + Date.now();
                     if (smartData.id) {
                         const safeId = smartData.id.replace(/[^a-z0-9\-]/gi, '_');
@@ -962,6 +982,7 @@
                     }
                 }
 
+                // 4. Prepare File Blob
                 const blob = await (await fetch(dataURL)).blob();
                 const arrayBuffer = await blob.arrayBuffer();
                 const uint8Array = new Uint8Array(arrayBuffer);
@@ -970,26 +991,27 @@
                 const sizeMb = (blob.size / (1024*1024)).toFixed(2);
                 const sizeStr = sizeMb < 1 ? (blob.size/1024).toFixed(0) + 'KB' : sizeMb + 'MB';
 
-                // 2. Build the Document Object
+                // 5. Create Document Metadata
                 const newDoc = {
                     id: finalDocId, 
                     name: finalDocName,
                     docCategory: category,
                     type: 'scan',
                     size: sizeStr,
-                    date: editingDocId ? 'Updated Now' : 'Just Now', // Visual feedback
+                    date: editingDocId ? 'Updated Now' : 'Just Now',
                     ocrText: cleanedText,
                     smartData: smartData 
                 };
 
+                // 6. Save to Storage (Cloud or Local)
                 if (db) {
                      const cloudDocMetadata = { ...newDoc };
                      delete cloudDocMetadata.src; 
                      cloudDocMetadata.hasBinary = true; 
                      
                      if (editingDocId) {
-                        // UPDATE EXISTING IN FIREBASE
-                        // A. Update the binary blob (easy)
+                        // [CLOUD EDIT]
+                        // A. Overwrite the Binary
                         const scanData = { 
                              image_blob: firestoreBlob, 
                              timestamp: Date.now(), 
@@ -997,19 +1019,19 @@
                         };
                         await db.collection('jobs').doc(currentJobId).collection('scans').doc(finalDocId).set(scanData);
 
-                        // B. Update the array (tricky - read, modify, write)
+                        // B. Update the List
                         const jobRef = db.collection('jobs').doc(currentJobId);
                         const jobSnap = await jobRef.get();
                         let currentDocs = jobSnap.data().documents;
                         const idx = currentDocs.findIndex(d => d.id === editingDocId);
                         
                         if (idx !== -1) {
-                            currentDocs[idx] = cloudDocMetadata; // Replace old with new
+                            currentDocs[idx] = cloudDocMetadata; 
                             await jobRef.update({ documents: currentDocs });
                         }
 
                      } else {
-                        // CREATE NEW IN FIREBASE
+                        // [CLOUD CREATE]
                         await db.collection('jobs').doc(currentJobId).update({
                             documents: firebase.firestore.FieldValue.arrayUnion(cloudDocMetadata)
                         });
@@ -1022,7 +1044,7 @@
                      }
 
                 } else {
-                    // LOCAL ONLY
+                    // [OFFLINE/LOCAL]
                     const job = jobs.find(j => j.id === currentJobId);
                     newDoc.src = dataURL;
                     
@@ -1035,11 +1057,11 @@
                     renderJobs(); 
                 }
 
+                // 7. Cleanup & Close
                 closeSaveModal(); cancelEdit(); 
+                editingDocId = null; // Reset mode
 
-                // Reset editing state
-                editingDocId = null;
-
+                // Check for Auto-Complete Status
                 const job = jobs.find(j => j.id === currentJobId);
                 const newStatus = getJobStatus(job);
                 if (category === 'Purchase Order' && newStatus === 'Completed') {
@@ -1275,6 +1297,7 @@
     </script>
 </body>
 </html>
+
 
 
 
