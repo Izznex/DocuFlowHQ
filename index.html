@@ -905,16 +905,17 @@
         function processStampUpload(input) {
             if (input.files && input.files[0]) {
                 const reader = new FileReader();
+                
                 reader.onload = function(e) {
-                    const img = new Image(); img.src = e.target.result;
-                    img.onload = function() {
-                        const processedDataUrl = removeWhiteBackground(img);
-                        addStampImageToCanvas(processedDataUrl);
-                    }
-                }
+                    // Use the shared helper! 
+                    // This ensures Uploads get the same "Background Removal" treatment as Pastes.
+                    processAndAddStamp(e.target.result); 
+                    
+                    input.value = ''; // Reset so you can select the same file again
+                };
+                
                 reader.readAsDataURL(input.files[0]);
             }
-            input.value = ''; 
         }
         
         function toggleStampMenu() {
@@ -941,7 +942,7 @@
                     if (item.types.some(type => type.startsWith('image/'))) {
                         const blob = await item.getType(item.types.find(type => type.startsWith('image/')));
                         const reader = new FileReader();
-                        reader.onload = (e) => addStampImageToCanvas(e.target.result);
+                        reader.onload = (e) => processAndAddStamp(e.target.result);
                         reader.readAsDataURL(blob);
                         return;
                     }
@@ -954,13 +955,7 @@
             }
         }
         
-        function removeWhiteBackground(imgObj) {
-            const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d');
-            canvas.width = imgObj.width; canvas.height = imgObj.height; ctx.drawImage(imgObj, 0, 0);
-            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height); const data = imgData.data; const threshold = 200;
-            for (let i = 0; i < data.length; i += 4) { if (data[i] > threshold && data[i + 1] > threshold && data[i + 2] > threshold) { data[i + 3] = 0; } }
-            ctx.putImageData(imgData, 0, 0); return canvas.toDataURL('image/webp');
-        }
+       
         function addStampImageToCanvas(dataUrl) {
             if (!fabricCanvas) return;
             fabric.Image.fromURL(dataUrl, function(img) {
@@ -968,6 +963,92 @@
                 img.set({ left: fabricCanvas.width / 2 - (img.width * targetScale) / 2, top: fabricCanvas.height / 2 - (img.height * targetScale) / 2, scaleX: targetScale, scaleY: targetScale, cornerColor: 'blue', cornerStyle: 'circle' });
                 fabricCanvas.add(img); fabricCanvas.setActiveObject(img);
             });
+        }
+
+        function processAndAddStamp(rawImgSrc) {
+            // Show loading feedback
+            document.body.style.cursor = 'wait';
+            const editorHeader = document.querySelector('#view-editor .h-16');
+            const originalHeader = editorHeader.innerHTML;
+            // Show a small temporary loader in header
+            editorHeader.innerHTML = '<div class="w-full h-full flex items-center justify-center text-emerald-400 gap-2"><div class="loader w-4 h-4 border-t-emerald-400"></div>Processing stamp...</div>';
+
+            const tempImg = new Image();
+            // Must set crossOrigin for external images, though less relevant for paste/upload
+            tempImg.crossOrigin = "Anonymous"; 
+            
+            tempImg.onload = function() {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                // Limit processing size for performance if it's a huge screenshot
+                const MAX_PROC_SIZE = 1500; 
+                let width = tempImg.width;
+                let height = tempImg.height;
+                if (width > MAX_PROC_SIZE || height > MAX_PROC_SIZE) {
+                    const ratio = Math.min(MAX_PROC_SIZE / width, MAX_PROC_SIZE / height);
+                    width *= ratio;
+                    height *= ratio;
+                }
+                canvas.width = width;
+                canvas.height = height;
+
+                // 1. Draw original image onto off-screen canvas
+                ctx.drawImage(tempImg, 0, 0, width, height);
+
+                // 2. Get raw pixel data (RGBA array)
+                let imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                let data = imgData.data;
+
+                // 3. Iterate pixels for Smart Background Removal & Cleanup
+                // Threshold: Luminance value above which a pixel is considered "background" (0-255)
+                // 210 is a good balance for screenshots of white paper/screens
+                const whiteThreshold = 210; 
+                // Dark Threshold: Luminance below which we assume it's ink and force to solid black
+                const darkThreshold = 120; 
+
+                for (let i = 0; i < data.length; i += 4) {
+                    const r = data[i];
+                    const g = data[i + 1];
+                    const b = data[i + 2];
+                    // Calculate luminance (perceived brightness)
+                    const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+                    if (luminance > whiteThreshold) {
+                        // Make bright background transparent
+                        data[i + 3] = 0; // Set Alpha to 0
+                    } else if (luminance < darkThreshold) {
+                        // Make dark ink solid black for better clarity
+                        data[i] = 0; // R
+                        data[i + 1] = 0; // G
+                        data[i + 2] = 0; // B
+                        // Keep existing alpha or force full opacity depending on preference. 
+                        // Usually keeping existing alpha looks more natural if the original had feathering.
+                        // data[i + 3] = 255; 
+                    }
+                    // Pixels in between remain as-is (for anti-aliasing edges)
+                }
+
+                // 4. Put processed data back
+                ctx.putImageData(imgData, 0, 0);
+
+                // 5. Export as PNG (required for transparency)
+                const processedImgSrc = canvas.toDataURL('image/png');
+
+                // 6. Add to main canvas
+                addStampImageToCanvas(processedImgSrc);
+                
+                // Reset UI
+                document.body.style.cursor = 'default';
+                editorHeader.innerHTML = originalHeader;
+            };
+
+            tempImg.onerror = function() {
+                 alert("Failed to process image.");
+                 document.body.style.cursor = 'default';
+                 editorHeader.innerHTML = originalHeader;
+            };
+
+            tempImg.src = rawImgSrc;
         }
 
         function addTextToCanvas() {
@@ -1020,22 +1101,40 @@
 
         function setupPasteListener() {
             document.addEventListener('paste', function(e) {
-                if (!currentJobId) return;
+                // 1. Check if we have a valid context (Job or specific view)
+                if (!currentJobId && document.getElementById('view-editor').classList.contains('hidden')) return;
+
+                // 2. extract the file
                 const items = (e.clipboardData || e.originalEvent.clipboardData).items;
                 let blob = null;
                 for (let i = 0; i < items.length; i++) {
                     if (items[i].type.indexOf("image") === 0) { blob = items[i].getAsFile(); break; }
                 }
+
                 if (blob !== null) {
                     e.preventDefault();
                     const reader = new FileReader();
+                    
                     reader.onload = function(event) { 
-                        closeAddMenu(); closeScanner(); openEditor(event.target.result); 
+                        const editorView = document.getElementById('view-editor');
+                        
+                        // === LOGIC BRANCH ===
+                        if (!editorView.classList.contains('hidden')) {
+                            // A. Editor is OPEN -> Add as STAMP (Process background)
+                            processAndAddStamp(event.target.result);
+                        } else {
+                            // B. Editor is CLOSED -> Create NEW DOCUMENT
+                            closeAddMenu(); 
+                            closeScanner(); 
+                            openEditor(event.target.result); 
+                        }
                     };
                     reader.readAsDataURL(blob);
                 } else {
+                    // Feedback if user pastes non-image
+                    // Only show alert if we found items but no images (avoid alerting on text paste in inputs)
                     if (items.length > 0 && items[0].kind === 'file') {
-                         alert("⚠️ Only Images are allowed. Please convert PDF/Doc to image first.");
+                         alert("⚠️ Only Images are allowed.");
                     }
                 }
             });
@@ -1497,19 +1596,4 @@
     </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
