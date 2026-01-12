@@ -1,2746 +1,937 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Property Gate Pass</title>
-  <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-  <!-- CBOR Library for binary export -->
-  <script src="https://cdn.jsdelivr.net/npm/cbor-js@0.1.0/cbor.min.js"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-   
-  <style>
-    /* --- GLOBAL --- */
-    body { font-family: "Arial", sans-serif; background-color: #f0f0f0; padding: 20px; margin: 0; box-sizing: border-box; }
-    * { box-sizing: border-box; }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>DocuFlow Scanner</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- OpenCV.js -->
+    <script src="https://docs.opencv.org/4.7.0/opencv.js" async></script>
+    <!-- jscanify -->
+    <script src="https://cdn.jsdelivr.net/gh/ColonelParrot/jscanify@master/src/jscanify.min.js"></script>
+    <!-- Fabric.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <!-- CBOR-js -->
+    <script src="https://cdn.jsdelivr.net/npm/cbor-js@0.1.0/cbor.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Tesseract.js (OCR) -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <!-- jsPDF (PDF Generation) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-    /* --- VIEW MANAGEMENT --- */
-    #dashboard-view { display: none; }
-    #form-view { display: block; }
-    
-    /* Loading View */
-    #loading-view { 
-        display: none; 
-        height: 80vh; 
-        align-items: center; 
-        justify-content: center; 
-        flex-direction: column; 
-    }
-    
-    /* Landing view for unauthorized access */
-    #landing-view { display: none; height: 80vh; align-items: center; justify-content: center; flex-direction: column; }
+    <!-- === FIREBASE SDK === -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 
-    /* --- DASHBOARD STYLES --- */
-    .dashboard-container {
-      background: white; max-width: 1000px; margin: 0 auto; padding: 20px;
-      box-shadow: 0 0 15px rgba(0,0,0,0.1); border-radius: 8px;
-      position: relative;
-    }
-    .dash-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
-    .dash-title-group { display: flex; align-items: center; gap: 15px; }
-    .dash-title { font-size: 24px; font-weight: bold; color: #333; }
-    
-    .sync-status { font-size: 12px; color: #666; display: flex; align-items: center; gap: 5px; background: #f5f5f5; padding: 5px 10px; border-radius: 15px; display: none; }
-    .sync-status.visible { display: flex; }
-    .fa-spin { animation: fa-spin 1s infinite linear; }
-    @keyframes fa-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
-    .dash-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-    .global-search { 
-        padding: 10px 15px; 
-        border: 1px solid #ccc; 
-        border-radius: 20px; 
-        font-size: 14px; 
-        width: 250px; 
-        outline: none;
-        transition: border 0.3s;
-    }
-    .global-search:focus { border-color: #4CAF50; }
-    .btn-new {
-      background: #4CAF50; color: white; border: none; padding: 10px 20px;
-      border-radius: 5px; cursor: pointer; font-weight: bold; text-decoration: none;
-      transition: background 0.2s; white-space: nowrap;
-    }
-    .btn-new:hover { background: #45a049; }
-    
-    .btn-settings {
-      background: #eee; color: #333; border: none; padding: 10px;
-      border-radius: 50%; cursor: pointer; transition: background 0.2s;
-      display: none; align-items: center; justify-content: center; width: 40px; height: 40px;
-    }
-    .btn-settings:hover { background: #ddd; }
-    
-    .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 10px; }
-    .data-table { width: 100%; border-collapse: collapse; margin-top: 10px; min-width: 600px; }
-    .data-table th, .data-table td { border: 1px solid #ddd; padding: 12px; text-align: left; font-size: 14px; }
-    .data-table th { background-color: #f2f2f2; font-weight: bold; vertical-align: top; cursor: pointer; user-select: none; transition: background 0.2s; }
-    .data-table th:hover { background-color: #e0e0e0; }
-    .data-table tr:hover { background-color: #f9f9f9; cursor: pointer; }
-    .sort-icon { float: right; color: #999; margin-left: 5px; }
-    .sort-active { color: #333; }
-    
-    /* Action Column - Floating Style */
-    .data-table th:last-child {
-        background: transparent !important;
-        border: none !important;
-        cursor: default;
-        pointer-events: none;
-    }
-    .data-table td:last-child {
-        border: none !important;
-        background: transparent !important;
-        vertical-align: middle;
-        text-align: center;
-        width: 1px;
-        white-space: nowrap;
-        padding-left: 5px;
-    }
-    .data-table tr:hover td:last-child {
-        background: transparent !important;
-    }
-
-    .status-badge { padding: 4px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; text-transform: uppercase; white-space: nowrap; }
-    .status-Open { background: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }
-    .status-Returned { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
-    .status-- { color: #999; }
-
-    .item-summary { display: flex; align-items: center; justify-content: space-between; cursor: pointer; color: #0056b3; font-weight: bold; }
-    .item-summary:hover { text-decoration: underline; }
-    .item-details { margin-top: 8px; font-size: 12px; color: #555; background: #fafafa; padding: 8px; border-radius: 4px; border: 1px solid #eee; }
-    .item-row { display: flex; justify-content: space-between; margin-bottom: 2px; }
-
-    /* --- LANDING PAGE STYLES --- */
-    .landing-card { background: white; padding: 40px 30px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; max-width: 400px; width: 100%; margin: 20px; }
-    .landing-icon { font-size: 60px; color: #4CAF50; margin-bottom: 20px; }
-    .landing-card h2 { margin: 0 0 15px 0; color: #333; }
-    .landing-card p { color: #666; line-height: 1.5; margin-bottom: 20px; }
-
-    /* --- FORM STYLES --- */
-    .form-container { background: white; max-width: 900px; margin: 0 auto; padding: 30px; box-shadow: 0 0 15px rgba(0,0,0,0.2); border: 1px solid #ccc; position: relative; }
-    
-    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; border-bottom: 2px solid black; padding-bottom: 15px; position: relative; flex-wrap: wrap; gap: 15px; }
-    .logo { width: auto; max-width: 120px; }
-    .logo img { width: 100%; height: auto; display: block; }
-    .serial-box { border: 2px solid #e60000; color: #e60000; padding: 5px 15px; font-weight: bold; font-size: 18px; background: #fff0f0; text-align: center; min-width: 140px; }
-    .serial-label { font-size: 10px; color: #333; display: block; margin-bottom: 2px;}
-    
-    .doc-info { text-align: right; font-size: 10px; color: #333; width: auto; min-width: 220px; }
-    .doc-info h2 { margin: 0 0 5px 0; font-size: 18px; color: black; text-transform: uppercase; }
-    .doc-info table { width: 100%; border-collapse: collapse; font-size: 10px; }
-    .doc-info td { padding: 1px 0; }
-    
-    @media screen and (max-width: 768px) {
-        body { padding: 10px; }
-        .form-container { padding: 15px; }
-        .header { flex-direction: column; align-items: center; text-align: center; }
-        .logo, .doc-info { width: 100%; text-align: center; }
-        .serial-box { order: -1; width: 100%; margin: 5px 0; } 
-        .doc-info table td { text-align: center !important; }
-    }
-
-    .grid-row { display: grid; grid-template-columns: 100px 1fr 100px 1fr; gap: 10px; margin-bottom: 12px; align-items: center; }
-    label { font-weight: bold; font-size: 14px; }
-    input[type="text"], input[type="number"], input[type="date"], input[type="time"], select { width: 100%; border: none; border-bottom: 1px solid black; background: #fafafa; padding: 8px 5px; font-size: 14px; outline: none; border-radius: 0; }
-    input[type="text"]:focus, select:focus { background: #e8f0fe; }
-    input[readonly], select[disabled], input[disabled] { background-color: #f1f1f1 !important; cursor: not-allowed; }
-    
-    .checkbox-group { display: flex; gap: 15px; font-size: 14px; align-items: center; flex-wrap: wrap; }
-    .checkbox-group label { display: flex; align-items: center; gap: 5px; font-weight: normal; padding: 5px 0; }
-    input[type="checkbox"] { transform: scale(1.2); cursor: pointer; }
-
-    @media screen and (max-width: 768px) {
-        .grid-row { grid-template-columns: 1fr; gap: 5px; }
-        .grid-row label { margin-top: 10px; color: #555; font-size: 12px; text-transform: uppercase; }
-        input[type="text"], input[type="number"], input[type="date"], input[type="time"], select, textarea { font-size: 16px !important; }
-    }
-    
-    table.item-table { width: 100%; border-collapse: collapse; min-width: 500px; }
-    table.item-table th, table.item-table td { border: 2px solid black; padding: 10px; text-align: center; }
-    table.item-table th { background-color: #f9f9f9; font-weight: bold; }
-    table.item-table input { border: none; background: transparent; text-align: center; width: 100%; font-size: 14px; }
-    
-    .add-btn, .delete-btn { padding: 10px 15px; border-radius: 4px; cursor: pointer; font-size: 13px; margin-bottom: 20px; display: inline-flex; align-items: center; gap: 8px; color: white; border: none; }
-    .add-btn { background-color: #2196F3; }
-    .delete-btn { background-color: #f44336; margin-left: 10px; }
-
-    .btn-back { background-color: #666; color: white; border: none; padding: 12px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; margin-bottom: 15px; display: inline-block; }
-    .btn-print { background-color: #333; margin-left: 10px; }
-    
-    .btn-attach { background-color: #607D8B; margin-left: 10px; position: relative; }
-    .btn-attach.has-file { background-color: #FF9800; }
-    .attach-badge { 
-        position: absolute; top: -5px; right: -5px; 
-        background: red; color: white; border-radius: 50%; 
-        width: 18px; height: 18px; font-size: 10px; 
-        display: none; align-items: center; justify-content: center;
-    }
-
-    .purpose-section { margin-bottom: 20px; border: 1px dashed #ccc; padding: 10px; }
-    .purpose-title { text-decoration: underline; font-weight: bold; margin-bottom: 10px; display: block; }
-    .purpose-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
-    .purpose-option { display: flex; align-items: center; gap: 5px; font-weight: normal; cursor: pointer; }
-
-    .returned-check-container { margin-left: 0; margin-top: 10px; display: none; }
-    #label-returned { font-size: 13px; color: #0056b3; cursor: pointer; display: flex; align-items: center; gap: 5px; }
-    
-    @media screen and (max-width: 600px) { .purpose-grid { grid-template-columns: 1fr; } }
-
-    .signature-section { border: 2px solid black; margin-top: 20px; }
-    .sig-header { background: #eee; text-align: center; font-weight: bold; padding: 8px; border-bottom: 2px solid black; font-style: italic; }
-    .sig-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; divide-x: 2px solid black; }
-    .sig-box { padding: 10px; display: flex; flex-direction: column; border-right: 2px solid black; position: relative; }
-    .sig-box:last-child { border-right: none; }
-    
-    @media screen and (max-width: 768px) { 
-        .sig-grid { grid-template-columns: 1fr; divide-x: none; } 
-        .sig-box { border-right: none; border-bottom: 2px solid black; }
-        .sig-box:last-child { border-bottom: none; }
-    }
-    .sig-label-container { display: flex; justify-content: center; align-items: center; position: relative; margin-bottom: 10px; }
-    .sig-label { text-align: center; font-weight: bold; text-decoration: underline; }
-    
-    .btn-stamp {
-        position: absolute; right: 0; top: 0;
-        background: none; border: none; color: #2196F3; cursor: pointer; font-size: 14px;
-        opacity: 0.6; transition: opacity 0.2s;
-    }
-    .btn-stamp:hover { opacity: 1; color: #1976D2; }
-
-    .canvas-wrapper { border: 1px dashed #999; background: #fff; height: 120px; width: 100%; position: relative; margin-bottom: 5px; cursor: pointer; transition: background 0.3s; }
-    .canvas-wrapper:hover { background: #f0f8ff; border-color: #2196F3; }
-    .tap-hint { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #ccc; font-size: 14px; pointer-events: none; opacity: 0.7; font-weight: bold; }
-    canvas { width: 100%; height: 100%; display: block; }
-    
-    .vendor-section { border: 2px solid black; border-top: none; border-style: solid; margin-top: 5px; display: none; }
-    .vendor-header { font-weight: bold; padding: 8px; background: #f9f9f9; border-bottom: 1px solid black; }
-    .vendor-disclaimer-box { background-color: #fffde7; border-bottom: 1px solid #ddd; padding: 10px; font-size: 11px; color: #333; font-style: italic; text-align: justify; line-height: 1.4; }
-    .vendor-body { display: flex; flex-wrap: wrap; }
-    .vendor-left { flex: 1; padding: 10px; border-right: 1px solid black; min-width: 300px; }
-    .vendor-right { width: 250px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; }
-    
-    @media screen and (max-width: 768px) { 
-        .vendor-body { flex-direction: column; } 
-        .vendor-left { border-right: none; border-bottom: 1px solid black; width: 100%; min-width: auto; }
-        .vendor-right { width: 100%; }
-        .vendor-field-row { margin-top: 10px; }
-    }
-    .vendor-text { font-size: 12px; margin-bottom: 15px; text-align: justify; }
-    .vendor-field-row { display: flex; align-items: center; margin-bottom: 5px; }
-    .vendor-field-row label { width: 90px; flex-shrink: 0; }
-    
-    .returned-section { border: 2px solid black; border-top: none; border-style: solid; margin-top: 5px; display: none; }
-    .returned-header { font-weight: bold; padding: 8px; background: #eee; border-bottom: 1px solid black; }
-    .returned-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; divide-x: 2px solid black; }
-    .returned-col { padding: 10px; display: flex; flex-direction: column; border-right: 2px solid black; position: relative; }
-    .returned-col:last-child { border-right: none; }
-    .returned-col label { text-decoration: underline; margin-bottom: 10px; display: block; text-align: center; }
-    
-    @media screen and (max-width: 768px) {
-        .returned-grid { grid-template-columns: 1fr; divide-x: none; }
-        .returned-col { border-right: none; border-bottom: 2px solid black; }
-        .returned-col:last-child { border-bottom: none; }
-    }
-    
-    .fab-container { position: fixed; bottom: 20px; right: 20px; z-index: 100; left: 20px; text-align: center; }
-    .submit-btn { background-color: #4CAF50; color: white; border: none; padding: 15px 30px; font-size: 18px; border-radius: 50px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); cursor: pointer; font-weight: bold; transition: transform 0.2s; width: 100%; max-width: 400px; }
-    .submit-btn:hover { transform: translateY(-2px); background-color: #45a049; }
-    .submit-btn:active { transform: translateY(0); }
-    .submit-btn:disabled { background-color: #999; cursor: not-allowed; transform: none; }
-    
-    #sig-modal, #success-modal, #settings-modal, #attachment-modal, #qr-modal, #delete-confirm-modal, #lightbox-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; z-index: 10000; flex-direction: column; }
-    #success-modal, #settings-modal, #attachment-modal, #qr-modal, #delete-confirm-modal { background: rgba(0,0,0,0.85); align-items: center; justify-content: center; padding: 20px; }
-    
-    /* Lightbox specific style */
-    #lightbox-modal {
-        background: rgba(0,0,0,0.95);
-        z-index: 15000;
-        align-items: center;
-        justify-content: center;
-    }
-    .lightbox-content {
-        max-width: 95%;
-        max-height: 90vh;
-        object-fit: contain;
-    }
-    .lightbox-close {
-        position: absolute;
-        top: 20px;
-        right: 30px;
-        color: white;
-        font-size: 40px;
-        cursor: pointer;
-        z-index: 15001;
-    }
-
-    .modal-content { background: white; padding: 30px; border-radius: 12px; max-width: 500px; width: 100%; box-shadow: 0 10px 25px rgba(0,0,0,0.5); position: relative; }
-    .success-content { background: white; padding: 30px; border-radius: 12px; text-align: center; max-width: 400px; width: 100%; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
-    
-    .sig-modal-header { background: #333; color: white; padding: 10px 15px; display: flex; justify-content: space-between; align-items: center; height: 60px; }
-    /* Ensure buttons align in a row without wrapping */
-    .sig-modal-header > div { display: flex; align-items: center; }
-    .sig-modal-title { font-size: 18px; font-weight: bold; white-space: nowrap; }
-    .sig-modal-body { flex: 1; position: relative; background: #f9f9f9; overflow: hidden; touch-action: none; }
-    
-    .modal-btn { padding: 10px 16px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-left: 8px; font-size: 14px; white-space: nowrap; }
-    
-    /* Mobile optimization for signature modal buttons */
-    @media screen and (max-width: 480px) {
-        .sig-modal-header { padding: 10px; }
-        .sig-modal-title { font-size: 14px; margin-right: 5px; }
-        .modal-btn { padding: 8px 10px; font-size: 12px; margin-left: 4px; }
-    }
-
-    .btn-cancel { background: #666; color: white; }
-    .btn-clear { background: #ff9800; color: white; }
-    .btn-done { background: #4CAF50; color: white; }
-    .btn-danger { background: #f44336; color: white; }
-    
-    .btn-row-delete { 
-        background: transparent; 
-        color: #f44336; 
-        border: none; 
-        padding: 5px 8px; 
-        font-size: 14px; 
-        cursor: pointer; 
-        margin-left: 5px; 
-        opacity: 0.4;
-        transition: opacity 0.2s, color 0.2s;
-    }
-    .btn-row-delete:hover {
-        opacity: 1;
-        color: #d32f2f;
-    }
-    
-    #modal-canvas { touch-action: none; width: 100%; height: 100%; }
-
-    /* Attachment List Styles */
-    .attachment-item { 
-        position: relative; 
-        display: inline-block; 
-        margin: 5px; 
-        border: 1px solid #ddd; 
-        border-radius: 4px; 
-        overflow: hidden; 
-        width: 120px; 
-        vertical-align: top;
-        cursor: pointer; /* Clickable */
-        transition: transform 0.2s;
-    }
-    .attachment-item:hover { transform: scale(1.02); }
-    .attachment-item img { 
-        width: 100%; 
-        height: 100px; 
-        object-fit: cover; 
-        display: block; 
-    }
-    .btn-remove-img { 
-        position: absolute; 
-        top: 0; 
-        right: 0; 
-        background: rgba(244, 67, 54, 0.9); 
-        color: white; 
-        border: none; 
-        cursor: pointer; 
-        padding: 2px 6px; 
-        font-size: 12px;
-        border-bottom-left-radius: 4px;
-        z-index: 10;
-    }
-
-    .size-bar-container {
-        width: 100%;
-        height: 10px;
-        background: #eee;
-        border-radius: 5px;
-        margin-top: 5px;
-        overflow: hidden;
-    }
-    .size-bar {
-        height: 100%;
-        background: #4CAF50;
-        width: 0%;
-        transition: width 0.3s;
-    }
-    .size-bar.warning { background: #FF9800; }
-    .size-bar.danger { background: #F44336; }
-
-    /* --- LANDSCAPE SIGNATURE MODE --- */
-    @media screen and (max-width: 900px) and (orientation: landscape) {
-        #sig-modal {
-            padding: 0 !important;
-            background: white !important;
+    <style>
+        .scanner-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 20; pointer-events: none;
+            border-style: solid; border-color: rgba(0, 0, 0, 0.7); border-width: 10vh 10vw; 
+            box-sizing: border-box; transition: border-width 0.3s ease;
         }
-        .sig-modal-header {
-            display: none !important; /* Hide buttons */
+        .scan-line {
+            position: absolute; width: 100%; height: 2px;
+            background: #00ff9d; box-shadow: 0 0 10px #00ff9d;
+            top: 0; animation: scanMove 2s infinite linear; display: none;
         }
-        .sig-modal-body {
-            height: 100% !important;
-            width: 100% !important;
-            flex: 1 1 auto;
-            background: white !important;
+        @keyframes scanMove {
+            0% { top: 0; opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { top: 100%; opacity: 0; }
         }
-        .modal-content {
-            box-shadow: none !important;
-            border-radius: 0 !important;
-            max-width: none !important;
-            width: 100% !important;
-            height: 100% !important;
-            padding: 0 !important;
-            display: flex;
-            flex-direction: column;
+        .scanning .scan-line { display: block; }
+        body { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
+        ::-webkit-scrollbar { display: none; }
+        .loader {
+            border: 3px solid #f3f3f3; border-radius: 50%; border-top: 3px solid #10b981;
+            width: 20px; height: 20px; animation: spin 1s linear infinite;
         }
-        #sig-rotate-hint {
-            display: block !important;
-        }
-    }
-
-    #sig-rotate-hint {
-        display: none;
-        position: absolute;
-        bottom: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        background-color: rgba(0, 0, 0, 0.6);
-        color: white;
-        padding: 8px 16px;
-        border-radius: 20px;
-        font-size: 14px;
-        pointer-events: none;
-        z-index: 10001;
-        white-space: nowrap;
-    }
-
-    #toast {
-        visibility: hidden; min-width: 250px; background-color: #333; color: #fff;
-        text-align: center; border-radius: 4px; padding: 16px; position: fixed;
-        z-index: 20000; left: 50%; bottom: 30px; transform: translateX(-50%);
-        font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    }
-    #toast.show { visibility: visible; animation: fadein 0.5s, fadeout 0.5s 2.5s; }
-    @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
-    @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
-
-    /* Archive Banner Styling */
-    #archive-banner {
-        display: none;
-        background: #fff3e0;
-        border: 1px solid #ffb74d;
-        color: #e65100;
-        padding: 15px;
-        border-radius: 8px;
-        margin-bottom: 20px;
-        align-items: center;
-        justify-content: space-between;
-        flex-wrap: wrap;
-        gap: 10px;
-    }
-    .archive-btn {
-        background: #ef6c00;
-        color: white;
-        border: none;
-        padding: 8px 15px;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 13px;
-        font-weight: bold;
-    }
-    
-    /* Mode Indicator */
-    #mode-indicator {
-        position: absolute;
-        top: 0;
-        right: 0;
-        background: #333;
-        color: white;
-        font-size: 10px;
-        padding: 2px 6px;
-        border-bottom-left-radius: 5px;
-        display: none;
-        z-index: 999;
-    }
-
-    /* --- PRINT STYLES --- */
-    @media print {
-        @page { size: A4 portrait; margin: 0.5cm; }
-        html, body { height: 100%; width: 100%; overflow: visible; }
-        body { padding: 0; background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; font-size: 10px; }
-        
-        .form-container { 
-            box-shadow: none; 
-            border: 2px solid black; 
-            padding: 5px; 
-            max-width: 100%; 
-            width: 100%; 
-            margin: 0; 
-        }
-        
-        /* Hide Archive Banner in Print */
-        #archive-banner, #btn-archive-export, #mode-indicator { display: none !important; }
-        .header { margin-bottom: 2px; padding-bottom: 2px; border-bottom: 1px solid black; }
-        .grid-row { margin-bottom: 2px; gap: 5px; }
-        .doc-info h2 { font-size: 14px; margin: 0; }
-        .logo { max-width: 80px; }
-        .serial-box { font-size: 12px; padding: 2px 5px; min-width: 100px; }
-        
-        /* Hide non-print elements */
-        .add-btn, .delete-btn, .btn-back, .btn-print, .fab-container, 
-        #dashboard-view, .sync-status, .tap-hint, #label-returned, 
-        .returned-check-container, .btn-stamp, .btn-attach, 
-        .attach-badge, #sig-rotate-hint, #btn-copy-link-header, #btn-show-qr-header, #landing-view { 
-            display: none !important; 
-        }
-
-        /* Table adjustments */
-        table.item-table { margin-top: 2px; margin-bottom: 2px; width: 100%; }
-        table.item-table th, table.item-table td { padding: 2px 4px; font-size: 10px; border: 1px solid black; }
-        
-        /* Signature Section */
-        .signature-section { margin-top: 5px; border: 1px solid black; }
-        .sig-header { padding: 2px; font-size: 10px; }
-        .sig-box { padding: 2px; border: none !important; border-right: 1px solid black !important; }
-        .sig-box:last-child { border-right: none !important; }
-        
-        .canvas-wrapper { 
-            height: 90px;
-            border: 1px dashed #999 !important; 
-            margin-bottom: 0; 
-        }
-        .canvas-wrapper canvas { 
-            width: 100% !important; 
-            height: 100% !important; 
-            display: block;
-            object-fit: contain; 
-        }
-
-        /* Vendor & Returned Sections - Highly Compact */
-        .vendor-section, .returned-section { margin-top: 5px; border: 1px solid black; }
-        .vendor-header, .returned-header { padding: 2px; font-size: 10px; border-bottom: 1px solid black; }
-        .vendor-disclaimer-box { padding: 2px; font-size: 8px; line-height: 1.1; }
-        .vendor-body { display: flex; }
-        .vendor-left { padding: 2px; border-right: 1px solid black; flex: 1; }
-        .vendor-right { padding: 2px; width: 220px; }
-        .vendor-text { font-size: 9px; margin-bottom: 2px; }
-        .vendor-field-row { margin-bottom: 1px; }
-        
-        .returned-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; divide-x: 1px solid black; }
-        .returned-col { padding: 2px; border-right: 1px solid black; }
-        .returned-col:last-child { border-right: none; }
-        .returned-col textarea { height: 40px !important; } /* Limit textarea height in print */
-
-        /* Logistic & Checkbox Compact Styles */
-        .checkbox-group { gap: 5px; }
-        .checkbox-group label { 
-            font-size: 9px; 
-            padding: 0; 
-            white-space: nowrap; 
-        }
-
-        /* Input Styling for Print */
-        input[type="text"], input[type="number"], input[type="date"], input[type="time"], textarea, select {
-            border: none; 
-            border-bottom: 1px dotted #000; 
-            background: transparent !important; 
-            padding: 0 1px; 
-            font-size: 10px; 
-            height: auto; 
-            -webkit-appearance: none;
-            box-shadow: none;
-            margin: 0;
-        }
-        label { font-size: 10px; }
-        
-        input[type="date"]::-webkit-calendar-picker-indicator, 
-        input[type="time"]::-webkit-calendar-picker-indicator { 
-            display: none !important; 
-        }
-        
-        /* Force background graphics */
-        .serial-box { background: #fff0f0 !important; -webkit-print-color-adjust: exact; }
-        .sig-header, .returned-header, .vendor-header { background: #eee !important; -webkit-print-color-adjust: exact; }
-        .vendor-disclaimer-box { background: #fffde7 !important; -webkit-print-color-adjust: exact; }
-
-        /* Override disabled/readonly grey styles for print to look like normal text */
-        input[readonly], select[disabled], input[disabled], textarea[disabled] {
-            background-color: transparent !important;
-            color: black !important;
-            opacity: 1 !important;
-            border: none;
-            box-shadow: none;
-        }
-
-        /* Apply dotted line ONLY to text-like inputs when disabled/readonly */
-        input[type="text"][disabled], input[type="text"][readonly],
-        input[type="number"][disabled], input[type="number"][readonly],
-        input[type="date"][disabled], input[type="date"][readonly],
-        input[type="time"][disabled], input[type="time"][readonly],
-        select[disabled], textarea[disabled], textarea[readonly] {
-            border-bottom: 1px dotted #000;
-        }
-
-        /* CHECKBOX SPECIFIC */
-        input[type="checkbox"] { transform: none !important; }
-        input[type="checkbox"][disabled] {
-            -webkit-appearance: none !important;
-            appearance: none !important;
-            background-color: white !important;
-            border: 1px solid black !important;
-            width: 12px !important;
-            height: 12px !important;
-            opacity: 1 !important;
-            display: inline-block;
-            position: relative;
-            vertical-align: middle;
-            margin: 0 2px 0 0;
-            cursor: default;
-            box-shadow: none !important;
-            border-radius: 2px;
-        }
-        
-        input[type="checkbox"][disabled]:checked { background-color: white !important; }
-        
-        input[type="checkbox"][disabled]:checked::after {
-            content: '✓';
-            font-size: 12px;
-            font-weight: 900;
-            color: black !important;
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            display: block;
-            line-height: 1;
-            font-family: monospace;
-        }
-    }
-  </style>
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
 </head>
-<body>
+<body class="bg-gray-900 text-white h-screen w-screen overflow-hidden font-sans">
 
-<!-- LANDING VIEW (For blocked users) -->
-<div id="landing-view">
-  <div class="landing-card">
-    <div class="landing-icon"><i class="fas fa-qrcode"></i></div>
-    <h2>Property Gate Pass</h2>
-    <p>To create a new Gate Pass, please scan the official QR code located at the security post.</p>
-  </div>
-</div>
+    <input type="file" id="doc-upload-input" accept="image/*" class="hidden" onchange="handleDocUpload(this)">
 
-<!-- LOADING VIEW -->
-<div id="loading-view">
-  <div style="font-size: 50px; color: #4CAF50; margin-bottom: 20px;"><i class="fas fa-circle-notch fa-spin"></i></div>
-  <div style="font-size: 20px; font-weight: bold; color: #333;">Loading Gate Pass...</div>
-  <div style="color: #666; margin-top: 5px;">Syncing data from cloud</div>
-</div>
-
-<!-- DASHBOARD VIEW -->
-<div id="dashboard-view">
-  <div class="dashboard-container">
-    <div class="dash-header">
-      <div class="dash-title-group">
-        <div class="dash-title">Property Gate Pass Dashboard</div>
-        <div id="sync-status" class="sync-status"><i class="fas fa-sync fa-spin"></i> Syncing...</div>
-      </div>
-      <div class="dash-controls">
-         <input type="text" id="globalSearch" class="global-search" placeholder="Search all fields..." onkeyup="applyGlobalFilter()">
-         <button class="btn-new" onclick="loadNewForm()"><i class="fas fa-plus"></i> New Gate Pass</button>
-         <button id="btn-open-qr" class="btn-settings" onclick="openQRModal()" title="Print QR Codes"><i class="fas fa-qrcode"></i></button>
-         <button id="btn-open-settings" class="btn-settings" onclick="openSettingsModal()"><i class="fas fa-cog"></i></button>
-      </div>
-    </div>
-    
-    <div class="table-responsive">
-      <table class="data-table" id="dashboard-table">
-        <thead>
-          <tr>
-            <th onclick="sortTable('docId')">ID <i class="fas fa-sort sort-icon" id="sort-docId"></i></th>
-            <th onclick="sortTable('timestamp')">Date <i class="fas fa-sort sort-icon" id="sort-timestamp"></i></th>
-            <th onclick="sortTable('name')">Name <i class="fas fa-sort sort-icon" id="sort-name"></i></th>
-            <th onclick="sortTable('department')">Department <i class="fas fa-sort sort-icon" id="sort-department"></i></th>
-            <th>Items</th>
-            <th onclick="sortTable('status')">Status <i class="fas fa-sort sort-icon" id="sort-status"></i></th>
-            <th></th> <!-- Empty header for floating action -->
-          </tr>
-        </thead>
-        <tbody id="dashboard-body">
-          <tr><td colspan="6" style="text-align:center;">Loading...</td><td></td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<!-- FORM VIEW -->
-<div id="form-view">
-  <div class="form-container">
-    <div id="mode-indicator"></div>
-    <!-- NEW: Archive Banner -->
-    <div id="archive-banner">
-        <span><i class="fas fa-archive"></i> <strong>Data Archived:</strong> Heavy data (images/signatures) has been removed to save space.</span>
-        <button class="archive-btn" onclick="document.getElementById('archive-upload').click()">Load Backup File</button>
-        <!-- UPDATED: Accept both .json and .cbor -->
-        <input type="file" id="archive-upload" style="display:none" accept=".json,.cbor" onchange="handleRestoreFile(this)">
-    </div>
-
-    <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-        <div>
-            <!-- Back to Dashboard (Icon Only) -->
-            <button id="btn-back-dashboard" class="btn-back" onclick="showDashboard()" title="Back to Dashboard">
-                <i class="fas fa-arrow-left"></i>
-            </button>
-            <!-- Print (Icon Only) -->
-            <button class="btn-back btn-print" onclick="window.print()" title="Print Form">
-                <i class="fas fa-print"></i>
+    <!-- HEADER -->
+    <header class="fixed top-0 w-full z-50 bg-gray-900/90 backdrop-blur border-b border-gray-800 p-4 flex justify-between items-center h-16">
+        <div class="flex items-center gap-2">
+            <i data-lucide="layers" class="text-emerald-400"></i>
+            <h1 class="font-bold text-lg tracking-wide">DocuFlow</h1>
+        </div>
+        <div class="flex gap-2">
+            <input type="file" id="archive-upload" accept=".cbor" class="hidden" onchange="handleArchiveUpload(this)">
+            <button onclick="document.getElementById('archive-upload').click()" class="text-xs bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-full border border-gray-700 text-gray-400 flex items-center gap-1">
+                <i data-lucide="archive-restore" class="w-3 h-3"></i> Archive
             </button>
         </div>
-        <div>
-            <!-- NEW: Show QR Button in Header -->
-            <button id="btn-show-qr-header" class="btn-back" style="background-color: #673AB7; margin-right: 5px; display: none;" onclick="showCurrentDocQR()" title="Show QR Code">
-                <i class="fas fa-qrcode"></i>
-            </button>
-            <!-- NEW: Copy Link Button in Header (Icon Only) -->
-            <button id="btn-copy-link-header" class="btn-back" style="background-color: #9C27B0; margin-right: 5px; display: none;" onclick="copyCurrentDocLink()" title="Copy Link">
-                <i class="fas fa-link"></i>
-            </button>
-            <!-- Photo Button (Icon Only) -->
-            <button id="btn-image-attach" class="btn-back btn-attach" onclick="handleAttachmentClick()" title="Add/View Photos">
-                <i class="fas fa-camera"></i>
-                <span id="attach-badge" class="attach-badge">0</span>
-            </button>
-        </div>
-    </div>
-    
-    <!-- ... Rest of Form ... -->
-    <div class="header">
-      <div class="logo">
-        <img src="https://www.mdbc.com.my/wp-content/uploads/2020/01/HQPack-JohorMalaysia-Logo2017-RGB.png" alt="HQ PACK">
-      </div>
-      <div class="serial-box"><span class="serial-label">SERIAL NO.</span><span id="serial-number-display">NEW</span></div>
-      <div class="doc-info">
-        <h2>PROPERTY GATEPASS</h2>
-        <table>
-          <tr>
-            <td style="text-align: right; padding-right: 4px; font-weight:bold;">DOCUMENT NO</td>
-            <td id="display-doc-no" style="text-align: left;">: HQMS-MY-00-HRA-00</td>
-          </tr>
-          <tr>
-            <td style="text-align: right; padding-right: 4px; font-weight:bold;">REVISION</td>
-            <td id="display-doc-rev" style="text-align: left;">: 03</td>
-          </tr>
-          <tr>
-            <td style="text-align: right; padding-right: 4px; font-weight:bold;">EFFECTIVE DATE</td>
-            <td id="display-doc-date" style="text-align: left;">: 02-SEP-2025</td>
-          </tr>
-          <tr>
-            <td style="text-align: right; padding-right: 4px; font-weight:bold;">DOCUMENT OWNER</td>
-            <td id="display-doc-owner" style="text-align: left;">: HRA</td>
-          </tr>
-        </table>
-      </div>
-    </div>
+    </header>
 
-    <div class="grid-row">
-        <label>Location :</label> 
-        <select id="location" name="location">
-            <option value="">Select...</option>
-            <option value="P5">P5</option>
-            <option value="P6">P6</option>
-        </select>
-        <label>Date :</label> 
-        <input type="date" id="entryDate" name="entryDate" readonly>
-    </div>
-
-    <div class="grid-row"><label>Name :</label> <input type="text" id="name" name="name" placeholder="Name"><label>Emp No :</label> <input type="text" id="empNo" name="empNo" placeholder="HQ1234"></div>
-    
-    <div class="grid-row">
-        <label>Department :</label> 
-        <select id="department" name="department">
-            <option value="">Select Department...</option>
-            <option value="Operations">Operations</option>
-            <option value="Production">Production</option>
-            <option value="Maintenance">Maintenance</option>
-            <option value="Facility">Facility</option>
-            <option value="Process">Process</option>
-            <option value="Logistics">Logistics</option>
-            <option value="HRA">HRA</option>
-            <option value="Sales">Sales</option>
-            <option value="Business Development">Business Development</option>
-            <option value="SCM">SCM</option>
-            <option value="Finance">Finance</option>
-            <option value="Quality">Quality</option>
-        </select>
-        <label>Position :</label> 
-        <input type="text" id="position" name="position" placeholder="e.g., Technician">
-    </div>
-
-    <div class="grid-row"><label>Logistic :</label><div class="checkbox-group"><label><input type="checkbox" id="log-car" name="logistic" value="Car/Lorry"> Car/Lorry</label><label><input type="checkbox" id="log-moto" name="logistic" value="Motorcycle"> Motorcycle</label><label><input type="checkbox" id="log-person" name="logistic" value="In-person"> In-person</label></div><label>Vehicle no :</label> <input type="text" id="vehicleNo" name="vehicleNo"></div>
-
-    <div class="table-responsive">
-        <table class="item-table" id="itemTable">
-          <thead><tr><th style="width: 50px;">No</th><th>Item Description</th><th style="width: 150px;">Condition</th><th style="width: 80px;">Quantity</th></tr></thead>
-          <tbody></tbody>
-        </table>
-    </div>
-
-    <button type="button" class="add-btn" id="btn-add-item" onclick="addItemRow()"><i class="fas fa-plus"></i> Add Item</button>
-    <button type="button" class="delete-btn" id="btn-del-item" onclick="deleteItemRow()"><i class="fas fa-trash"></i> Delete Last Row</button>
-
-    <div class="purpose-section">
-      <span class="purpose-title">Purpose:</span>
-      <div class="purpose-grid">
-        <label class="purpose-option"><input type="checkbox" id="purp-transfer" name="purpose" value="Transfer"> Transfer between P5/P6</label>
-        <label class="purpose-option"><input type="checkbox" id="chk-repair" name="purpose" value="Repair"> Item for repair or service <i style="font-size:11px; margin-left: 5px; color: #666;">(See below)</i></label>
-        <label class="purpose-option"><input type="checkbox" id="chk-sample" name="purpose" value="Sample"> Sample for customer/supplier</label>
-        <label class="purpose-option"><input type="checkbox" id="purp-others" name="purpose" value="Others"> Others: <input type="text" id="purposeOthers" style="width: 150px; border-bottom: 1px solid #000;" placeholder="Please indicate"></label>
-      </div>
-      <div class="returned-check-container" id="returned-container">
-         <label id="label-returned"><input type="checkbox" id="chk-returned"> <span id="text-returned">Item Returned? (Show details)</span></label>
-      </div>
-    </div>
-
-    <div class="signature-section">
-      <div class="sig-header">For Office use - Signatures</div>
-      <div class="sig-grid">
-        <div class="sig-box">
-            <div class="sig-label-container">
-                <div class="sig-label">Requested By</div>
-                <button class="btn-stamp" onclick="triggerStampUpload('sig-requested')" title="Upload Stamp"><i class="fas fa-stamp"></i></button>
+    <!-- VIEW 1: JOB LIST -->
+    <main id="view-jobs" class="pt-20 pb-24 px-4 h-full overflow-y-auto relative">
+        <div class="bg-gray-800/50 rounded-lg p-3 mb-6 border border-gray-700">
+            <div class="flex justify-between items-end mb-2">
+                <span class="text-xs text-gray-400 font-medium">Storage Usage</span>
+                <span id="storage-text" class="text-xs font-mono text-emerald-400">Calculating...</span>
             </div>
-            <div class="canvas-wrapper" onclick="openSigModal('sig-requested', 'Requested By')"><canvas id="sig-requested"></canvas><div class="tap-hint" id="hint-sig-requested">Tap to Sign</div></div><div style="margin-top: 10px;"><label>Name:</label> <input type="text" id="display-name-req" readonly placeholder="Waiting for Name..."></div>
-        </div>
-        <div class="sig-box">
-            <div class="sig-label-container">
-                <div class="sig-label">Approved By (HOD)</div>
-                <button class="btn-stamp" onclick="triggerStampUpload('sig-hod')" title="Upload Stamp"><i class="fas fa-stamp"></i></button>
+            <div class="h-2 w-full bg-gray-700 rounded-full overflow-hidden">
+                <div id="storage-bar" class="h-full bg-emerald-500 w-0 transition-all duration-500"></div>
             </div>
-            <div class="canvas-wrapper" onclick="openSigModal('sig-hod', 'Approved By (HOD)')"><canvas id="sig-hod"></canvas><div class="tap-hint" id="hint-sig-hod">Tap to Sign</div></div><div style="margin-top: 10px;"><label>Name:</label> <input type="text" id="hodName" placeholder="HOD Name"></div>
-        </div>
-        <div class="sig-box">
-            <div class="sig-label-container">
-                <div class="sig-label">Checked by Security</div>
-                <button class="btn-stamp" onclick="triggerStampUpload('sig-security')" title="Upload Stamp"><i class="fas fa-stamp"></i></button>
+            <div id="archive-alert" class="hidden mt-3 pt-3 border-t border-gray-700/50 flex items-center justify-between">
+                <span class="text-xs text-yellow-400 flex items-center gap-1">
+                    <i data-lucide="hard-drive" class="w-3 h-3"></i> Cleanup Recommended
+                </span>
+                <button onclick="archiveClosedJobs()" class="text-xs bg-yellow-900/30 text-yellow-300 px-3 py-1.5 rounded border border-yellow-900/50 hover:bg-yellow-900/50 transition-colors">
+                    Archive Completed
+                </button>
             </div>
-            <div class="canvas-wrapper" onclick="openSigModal('sig-security', 'Security Check')"><canvas id="sig-security"></canvas><div class="tap-hint" id="hint-sig-security">Tap to Sign</div></div><div style="margin-top: 10px;"><label>Name:</label> <input type="text" id="secName" placeholder="Guard Name"><br><label>Time:</label> <input type="time" id="secTime"></div>
         </div>
-      </div>
-    </div>
 
-    <div id="vendor-section" class="vendor-section">
-      <div class="vendor-header">For repair/service vendor's Acknowledgement:</div>
-      <div class="vendor-disclaimer-box"><strong>Personal Data Protection Notice:</strong> By signing this document, the undersigned acknowledges receipt of the items described herein in the stated condition. The undersigned further consents to the collection and processing of their National Registration Identity Card (NRIC), Passport Number, or other identification details by HQ Pack for the specific purposes of internal property documentation, security tracking, and verification.</div>
-      <div class="vendor-body">
-        <div class="vendor-left"><div class="vendor-text">Items indicated above are received in condition mentioned above...</div><label>Remarks:</label><input type="text" id="vendorRemarks1" style="width: 100%; margin-bottom: 5px;"><input type="text" id="vendorRemarks2" style="width: 100%;"></div>
-        <div class="vendor-right">
-            <div style="flex: 1; margin-bottom: 10px; position: relative;">
-                <label>Signature :</label>
-                <button class="btn-stamp" style="top: -5px;" onclick="triggerStampUpload('sig-vendor')" title="Upload Stamp"><i class="fas fa-stamp"></i></button>
-                <div class="canvas-wrapper" style="height: 60px;" onclick="openSigModal('sig-vendor', 'Vendor Acknowledgement')"><canvas id="sig-vendor"></canvas><div class="tap-hint" id="hint-sig-vendor" style="font-size: 10px;">Tap to Sign</div></div>
+        <div class="flex justify-between items-end mb-4">
+            <h2 class="text-xl font-semibold text-gray-200">Job List</h2>
+            <span id="connection-status" class="text-[10px] text-gray-500 flex items-center gap-1">
+                <div class="w-2 h-2 rounded-full bg-red-500"></div> Offline
+            </span>
+        </div>
+
+        <div class="mb-4 relative">
+            <input type="text" id="job-search" placeholder="Search Client, ID, or Content..." 
+                   class="w-full bg-gray-800 text-white border border-gray-700 rounded-lg py-3 pl-10 pr-4 focus:border-emerald-500 outline-none text-sm placeholder-gray-500"
+                   onkeyup="handleSearch()">
+            <i data-lucide="search" class="absolute left-3 top-3.5 text-gray-500 w-4 h-4"></i>
+        </div>
+        
+        <div class="space-y-4 pb-20" id="job-container">
+            <!-- Loader -->
+            <div class="animate-pulse space-y-3">
+                <div class="h-20 bg-gray-800 rounded-xl"></div>
+                <div class="h-20 bg-gray-800 rounded-xl"></div>
             </div>
-            <div class="vendor-field-row"><label>Name :</label><input type="text" id="vendorName"></div><div class="vendor-field-row"><label>IC No :</label><input type="text" id="vendorIC"></div><div class="vendor-field-row"><label>Date :</label><input type="date" id="vendorDate"></div><div class="vendor-field-row"><label>Company :</label><input type="text" id="vendorCompany"></div>
         </div>
-      </div>
-    </div>
 
-    <div id="returned-section" class="returned-section">
-      <div class="returned-header">Item return details:</div>
-      <div class="returned-grid">
-        <div class="returned-col">
-            <label>Received By</label>
-            <button class="btn-stamp" style="top: 10px; right: 10px;" onclick="triggerStampUpload('sig-returned-received')" title="Upload Stamp"><i class="fas fa-stamp"></i></button>
-            <div class="canvas-wrapper" style="height: 80px;" onclick="openSigModal('sig-returned-received', 'Item Received By')"><canvas id="sig-returned-received"></canvas><div class="tap-hint" id="hint-sig-returned-received">Tap to Sign</div></div><div style="margin-top: 10px;"><label style="text-decoration:none; margin:0; text-align:left;">Name:</label> <input type="text" id="returnedName"><label style="text-decoration:none; margin:5px 0 0 0; text-align:left;">Date:</label> <input type="date" id="returnedDate"></div>
+        <button onclick="openNewJobModal()" class="fixed bottom-8 right-8 w-14 h-14 bg-emerald-500 rounded-full flex items-center justify-center shadow-lg shadow-emerald-500/20 active:scale-90 transition-transform z-30">
+            <i data-lucide="plus" class="text-white w-8 h-8"></i>
+        </button>
+    </main>
+
+    <!-- VIEW 2: JOB DETAILS -->
+    <div id="view-job-details" class="fixed inset-0 bg-gray-900 z-40 hidden flex flex-col pt-16">
+        <div class="h-16 flex items-center gap-4 px-4 border-b border-gray-800 bg-gray-900/50 backdrop-blur shrink-0">
+            <button onclick="closeJobDetails()" class="p-2 -ml-2 text-gray-400 hover:text-white">
+                <i data-lucide="arrow-left"></i>
+            </button>
+            <div class="flex-1">
+                <h2 id="detail-client" class="font-bold text-lg leading-tight text-white">Client Name</h2>
+                <div class="flex items-center gap-2">
+                    <span id="detail-id" class="text-xs font-mono text-emerald-400">#ID</span>
+                    <span id="detail-status" class="text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Status</span>
+                    <span id="detail-archive-badge" class="hidden text-[10px] px-1.5 py-0.5 rounded bg-purple-900/50 text-purple-300 border border-purple-800">ARCHIVED</span>
+                </div>
+            </div>
+            <button onclick="downloadJobBundle()" class="p-2 text-red-400 hover:text-white bg-red-900/20 rounded-full border border-red-900/50 active:scale-95 transition-transform" title="Download All as PDF">
+                <i data-lucide="file-stack" class="w-5 h-5"></i>
+            </button>
         </div>
-        <div class="returned-col">
-            <label>Verified by HOD</label>
-            <button class="btn-stamp" style="top: 10px; right: 10px;" onclick="triggerStampUpload('sig-returned-hod')" title="Upload Stamp"><i class="fas fa-stamp"></i></button>
-            <div class="canvas-wrapper" style="height: 80px;" onclick="openSigModal('sig-returned-hod', 'Verified by HOD (Return)')"><canvas id="sig-returned-hod"></canvas><div class="tap-hint" id="hint-sig-returned-hod">Tap to Sign</div></div><div style="margin-top: 10px;"><label style="text-decoration:none; margin:0; text-align:left;">Name:</label> <input type="text" id="returnedHodName"><label style="text-decoration:none; margin:5px 0 0 0; text-align:left;">Date:</label> <input type="date" id="returnedHodDate"></div>
-        </div>
-        <div class="returned-col"><label>Remarks</label><textarea id="returnedRemarks" style="width: 100%; height: 100px; border: 1px solid #ccc; resize: none;"></textarea></div>
-      </div>
-    </div>
-    
-    <div style="height: 80px;"></div>
-    <div class="fab-container"><button class="submit-btn" onclick="submitGatePass()"><i class="fas fa-paper-plane"></i> Submit Gate Pass</button></div>
-  </div>
-</div>
-
-<input type="file" id="stamp-input" style="display: none;" accept="image/*">
-<input type="file" id="image-attachment-input" style="display: none;" accept="image/*">
-
-<div id="sig-modal">
-  <div class="sig-modal-header"><span class="sig-modal-title" id="sig-modal-title">Sign Here</span><div><button class="modal-btn btn-cancel" onclick="closeSigModal()">Cancel</button><button class="modal-btn btn-clear" onclick="clearModalPad()">Clear</button><button class="modal-btn btn-done" onclick="saveSigModal()">Done</button></div></div>
-  <div class="sig-modal-body">
-      <canvas id="modal-canvas"></canvas>
-      <div id="sig-rotate-hint"><i class="fas fa-mobile-alt fa-rotate-270"></i> Rotate device back to save</div>
-  </div>
-</div>
-
-<div id="qr-modal">
-  <div class="modal-content" style="max-width: 700px; text-align: center;">
-    <h3>System Access QR Codes</h3>
-    <p style="color:#666; font-size:12px; margin-bottom:20px;">Print these codes for easy access.</p>
-    <div id="qr-container" style="display:flex; justify-content:center; flex-wrap:wrap; gap:20px;">
-        <!-- QR Codes will be injected here dynamically -->
-    </div>
-    <button class="modal-btn btn-done" style="margin-top:20px; width:100%;" onclick="closeQRModal()">Close</button>
-  </div>
-</div>
-
-<div id="settings-modal">
-  <div class="modal-content">
-    <h3 style="margin-top: 0;">Document Metadata Settings</h3>
-    <p style="font-size: 12px; color: #666;">Changes will apply to all new and existing form views.</p>
-    
-    <div style="margin-bottom: 15px;">
-        <label>Document No :</label>
-        <input type="text" id="setting-doc-no" placeholder="HQMS-MY-00-HRA-00">
-    </div>
-    <div style="margin-bottom: 15px;">
-        <label>Revision :</label>
-        <input type="text" id="setting-doc-rev" placeholder="03">
-    </div>
-    <div style="margin-bottom: 15px;">
-        <label>Effective Date :</label>
-        <input type="text" id="setting-doc-date" placeholder="02-SEP-2025">
-    </div>
-    <div style="margin-bottom: 15px;">
-        <label>Owner :</label>
-        <input type="text" id="setting-doc-owner" placeholder="HRA">
-    </div>
-
-    <div id="setting-base-url-container" style="margin-bottom: 15px; display:none;">
-        <label>System Base URL (Web App URL):</label>
-        <input type="text" id="setting-base-url" placeholder="https://script.google.com/macros/s/.../exec">
-        <p style="font-size: 10px; color: #999;">Enter your published Web App URL here to ensure QR codes work.</p>
-    </div>
-
-    <div id="setting-archive-section" style="margin-bottom: 15px; border-top: 1px solid #eee; padding-top: 15px; display:none;">
-        <label style="color: #666;">Admin Controls</label>
         
-        <div style="display:flex; gap:10px; margin-top:5px; margin-bottom:5px;">
-            <input type="text" id="archive-start-id" placeholder="From ID (e.g. PG-0001)" style="font-size:12px;">
-            <input type="text" id="archive-end-id" placeholder="To ID (e.g. PG-0050)" style="font-size:12px;">
+        <div class="flex-1 overflow-y-auto p-4 space-y-3" id="document-list"></div>
+
+        <div id="empty-docs" class="hidden absolute inset-0 flex flex-col items-center justify-center text-gray-600 pointer-events-none pt-20">
+            <i data-lucide="folder-open" class="w-16 h-16 mb-2 opacity-20"></i>
+            <p class="text-sm">No documents yet</p>
         </div>
 
-        <button class="btn-danger" style="width: 100%; margin-top: 5px; padding: 10px;" onclick="archiveReturnedPasses()">Archive & Download (CBOR)</button>
-        <p style="font-size: 10px; color: #999; margin-top: 5px;">Exports 'Returned' passes to a file and deletes them from cloud to save space.</p>
-        
-        <button class="btn-danger" style="width: 100%; margin-top: 10px; padding: 10px; background:#666;" onclick="showArchiveConfirm()">Legacy Auto-Archive (>30 Days)</button>
-    </div>
-    
-    <div style="text-align: right; margin-top: 20px;">
-        <button class="modal-btn btn-cancel" onclick="closeSettingsModal()">Cancel</button>
-        <button id="btn-save-settings" class="modal-btn btn-done" onclick="saveSettings()">Save Changes</button>
-    </div>
-  </div>
-</div>
-
-<div id="delete-confirm-modal">
-  <div class="modal-content" style="text-align: center; max-width: 350px;">
-    <h3 style="color: #f44336;"><i class="fas fa-trash-alt"></i> Delete Record?</h3>
-    
-    <p>Are you sure you want to delete <strong id="delete-target-id" style="color: #d32f2f;"></strong>?</p>
-    <p style="font-size: 12px; color: #666;">This action cannot be undone.</p>
-    
-    <div style="margin: 15px 0; text-align: left;">
-        <label style="font-size: 11px; color: #333; font-weight: bold;">Type the ID exactly to confirm:</label>
-        <input type="text" id="delete-confirmation-input" placeholder="e.g. PG-0001" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; margin-top: 5px; font-size: 14px;">
+        <button id="scan-fab" onclick="openAddMenu()" class="absolute bottom-8 right-8 w-14 h-14 bg-emerald-500 rounded-full flex items-center justify-center shadow-lg shadow-emerald-500/20 active:scale-90 transition-transform z-50">
+            <i data-lucide="plus" class="text-white w-6 h-6"></i>
+        </button>
     </div>
 
-    <div style="margin-top: 20px; display: flex; justify-content: center; gap: 10px;">
-        <button class="modal-btn btn-cancel" onclick="closeDeleteModal()">Cancel</button>
-        <button class="modal-btn btn-danger" onclick="confirmDelete()">Confirm Delete</button>
-    </div>
-  </div>
-</div>
-
-<div id="attachment-modal">
-  <div class="modal-content" style="max-width: 600px;">
-    <h3 style="margin-top: 0;">Attachments (Photos)</h3>
-    <div style="margin-bottom: 10px;">
-        <button class="btn-new" onclick="triggerAttachmentUpload()"><i class="fas fa-camera"></i> Add Photo</button>
-        <span style="font-size: 12px; color: #666; margin-left: 10px;">Max 1MB Total</span>
-    </div>
-    
-    <div id="attachment-list" style="min-height: 100px; border: 1px dashed #ccc; padding: 10px; background: #fafafa; border-radius: 4px;">
-        <!-- Attachments go here -->
-    </div>
-    
-    <div class="size-bar-container">
-        <div id="size-bar" class="size-bar"></div>
-    </div>
-    <div style="text-align: right; font-size: 10px; color: #666; margin-top: 2px;">
-        <span id="size-text">0 / 2000 KB</span>
-    </div>
-    
-    <div style="text-align: right; margin-top: 20px;">
-        <button class="modal-btn btn-done" onclick="closeAttachmentModal()">Close</button>
-    </div>
-  </div>
-</div>
-
-<!-- Lightbox Modal for Viewing Images -->
-<div id="lightbox-modal" onclick="closeLightbox()">
-    <span class="lightbox-close">&times;</span>
-    <img class="lightbox-content" id="lightbox-img">
-</div>
-
-<div id="success-modal">
-  <div class="success-content">
-    <div style="font-size: 50px; color: #4CAF50; margin-bottom: 20px;"><i class="fas fa-check-circle"></i></div>
-    <h2 style="margin-top: 0;">Submitted!</h2>
-    <p>Gate Pass ID: <strong id="success-id" style="font-size: 18px;"></strong></p>
-    <div id="qrcode" style="display: flex; justify-content: center; margin: 20px 0;"></div>
-    
-    <!-- Upload Status Indicator -->
-    <div id="upload-status-container" style="margin: 10px 0; padding: 10px; background: #f9f9f9; border-radius: 8px; display: none;">
-        <div style="font-size: 12px; font-weight: bold; margin-bottom: 5px;">Sync Status</div>
-        <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
-            <i id="upload-spinner" class="fas fa-circle-notch fa-spin" style="color: #2196F3;"></i>
-            <span id="upload-status-text" style="font-size: 11px; color: #666;">Uploading heavy assets...</span>
+    <!-- MODAL: ADD MENU -->
+    <div id="add-menu-modal" class="fixed inset-0 z-[80] hidden flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm px-4 pb-4 sm:pb-0">
+        <div class="bg-gray-800 p-6 rounded-2xl w-full max-w-sm border border-gray-700 shadow-2xl flex flex-col gap-3">
+            <h3 class="text-lg font-bold text-white mb-2 text-center">Add Document</h3>
+            <button onclick="openScannerFromMenu()" class="flex items-center gap-4 p-4 bg-gray-700/50 hover:bg-gray-700 rounded-xl border border-gray-600 transition-colors group">
+                <div class="w-12 h-12 rounded-full bg-emerald-900/30 flex items-center justify-center text-emerald-400 group-hover:bg-emerald-500 group-hover:text-white transition-colors"><i data-lucide="camera" class="w-6 h-6"></i></div>
+                <div class="text-left"><p class="font-bold text-gray-200">Scan with Camera</p><p class="text-xs text-gray-400">Capture and auto-crop</p></div>
+            </button>
+            <button onclick="triggerDocUploadFromMenu()" class="flex items-center gap-4 p-4 bg-gray-700/50 hover:bg-gray-700 rounded-xl border border-gray-600 transition-colors group">
+                <div class="w-12 h-12 rounded-full bg-blue-900/30 flex items-center justify-center text-blue-400 group-hover:bg-blue-500 group-hover:text-white transition-colors"><i data-lucide="image" class="w-6 h-6"></i></div>
+                <div class="text-left"><p class="font-bold text-gray-200">Upload Image</p><p class="text-xs text-gray-400">From gallery or file system</p></div>
+            </button>
+            <button onclick="handlePasteClick()" class="flex items-center gap-4 p-4 bg-gray-700/50 hover:bg-gray-700 rounded-xl border border-gray-600 transition-colors group">
+                <div class="w-12 h-12 rounded-full bg-purple-900/30 flex items-center justify-center text-purple-400 group-hover:bg-purple-500 group-hover:text-white transition-colors"><i data-lucide="clipboard" class="w-6 h-6"></i></div>
+                <div class="text-left"><p class="font-bold text-gray-200">Paste from Clipboard</p><p class="text-xs text-gray-400">Paste copied image (Ctrl+V)</p></div>
+            </button>
+            <button onclick="closeAddMenu()" class="mt-2 py-3 text-gray-400 font-medium hover:text-white rounded-lg hover:bg-gray-700/50 transition-colors">Cancel</button>
         </div>
     </div>
 
-    <p style="font-size: 12px; color: #666;">Take a screenshot of this QR code to track your request.</p>
-    <button id="btn-success-close" class="modal-btn btn-done" style="width: 100%; margin: 0;" onclick="closeSuccessModal()">Close & Return</button>
-  </div>
-</div>
+    <!-- VIEW 3: SCANNER -->
+    <div id="view-scanner" class="fixed inset-0 bg-black z-[60] hidden flex flex-col">
+        <div class="relative flex-1 bg-black overflow-hidden flex items-center justify-center">
+            <video id="video" class="absolute min-w-full min-h-full object-cover" playsinline autoplay muted></video>
+            <canvas id="highlight-canvas" class="absolute top-0 left-0 w-full h-full pointer-events-none"></canvas>
+            <div class="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+                <div class="w-[85%] h-[70%] border-2 border-white/30 rounded-lg relative shadow-[0_0_0_9999px_rgba(0,0,0,0.7)]">
+                    <div class="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-emerald-400 rounded-tl-lg"></div>
+                    <div class="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-emerald-400 rounded-tr-lg"></div>
+                    <div class="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-emerald-400 rounded-bl-lg"></div>
+                    <div class="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-emerald-400 rounded-br-lg"></div>
+                    <div class="scan-line"></div>
+                </div>
+            </div>
+            <div id="scan-feedback" class="absolute top-10 bg-black/60 px-4 py-2 rounded-full text-sm font-medium backdrop-blur hidden flex-col items-center">
+                <span>Hold steady...</span>
+            </div>
+        </div>
+        <div class="h-32 bg-gray-900 flex items-center justify-around px-8 z-20">
+            <button onclick="closeScanner()" class="p-4 rounded-full bg-gray-800 text-gray-400 hover:text-white transition-colors"><i data-lucide="x"></i></button>
+            <button onclick="captureDoc()" class="w-16 h-16 rounded-full border-4 border-white flex items-center justify-center bg-transparent active:scale-90 transition-transform"><div class="w-12 h-12 bg-white rounded-full"></div></button>
+            <button onclick="triggerDocUpload()" class="p-4 rounded-full bg-gray-800 text-emerald-400 hover:bg-gray-700 transition-colors"><i data-lucide="image"></i></button>
+        </div>
+    </div>
 
-<div id="toast">Message</div>
+    <!-- VIEW 4: EDITOR -->
+    <div id="view-editor" class="fixed inset-0 bg-gray-900 z-[70] hidden flex flex-col">
+        <div class="h-16 flex items-center justify-between px-4 border-b border-gray-700 bg-gray-900/95 backdrop-blur shrink-0 z-10">
+            <button onclick="cancelEdit()" class="text-gray-400 hover:text-white px-2">Cancel</button>
+            <h3 class="font-semibold text-gray-200">Edit Scan</h3>
+            <button id="editor-save-btn" onclick="openSaveModal()" class="text-emerald-400 font-bold px-2">Save</button>
+        </div>
+        <div class="flex-1 bg-gray-800 relative overflow-hidden flex items-center justify-center p-6 bg-[radial-gradient(#374151_1px,transparent_1px)] [background-size:16px_16px]">
+            <!-- ADDED WRAPPER ID -->
+            <div id="canvas-wrapper" class="shadow-2xl border border-gray-600/50"><canvas id="fabric-canvas"></canvas></div>
+        </div>
+        <div id="editor-toolbar" class="bg-gray-900 border-t border-gray-700 pb-safe-area">
+            <input type="file" id="stamp-input" accept="image/*" class="hidden" onchange="processStampUpload(this)">
+            <div class="h-24 flex items-center justify-around px-4">
+                <button onclick="rotateDoc('left')" class="flex flex-col items-center gap-1.5 group w-16">
+                    <div class="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center group-active:scale-90 transition-all text-gray-300 group-hover:text-white group-hover:border-gray-500"><i data-lucide="rotate-ccw" class="w-5 h-5"></i></div>
+                    <span class="text-[10px] text-gray-400 group-hover:text-gray-300 font-medium">Left</span>
+                </button>
+                <button onclick="cycleFilter()" class="flex flex-col items-center gap-1.5 group w-16">
+                    <div class="w-12 h-12 rounded-full bg-indigo-600/20 border border-indigo-500/50 flex items-center justify-center group-active:scale-90 transition-all shadow-[0_0_15px_rgba(79,70,229,0.2)]"><i data-lucide="wand-2" class="w-6 h-6 text-indigo-400"></i></div>
+                    <span id="filter-label" class="text-[10px] text-indigo-300 font-medium">Original</span>
+                </button>
+                <button onclick="rotateDoc('right')" class="flex flex-col items-center gap-1.5 group w-16">
+                    <div class="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center group-active:scale-90 transition-all text-gray-300 group-hover:text-white group-hover:border-gray-500"><i data-lucide="rotate-cw" class="w-5 h-5"></i></div>
+                    <span class="text-[10px] text-gray-400 group-hover:text-gray-300 font-medium">Right</span>
+                </button>
+                <div class="h-8 w-px bg-gray-700 mx-2"></div>
+                <button onclick="triggerStampInput()" class="flex flex-col items-center gap-1.5 group w-16">
+                    <div class="w-10 h-10 rounded-full bg-blue-900/30 border border-blue-500/50 flex items-center justify-center group-active:scale-90 transition-all text-blue-400"><i data-lucide="stamp" class="w-5 h-5"></i></div>
+                    <span class="text-[10px] text-blue-400 font-medium">Stamp</span>
+                </button>
+            </div>
+        </div>
+    </div>
 
-<!-- FIREBASE SCRIPTS -->
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <!-- MODAL: NEW JOB -->
+    <div id="new-job-modal" class="fixed inset-0 z-[80] hidden flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+        <div class="bg-gray-800 p-6 rounded-2xl w-full max-w-sm border border-gray-700 shadow-2xl">
+            <h3 class="text-lg font-bold text-white mb-4">Create New Job</h3>
+            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Client / Job Title</label>
+            <input type="text" id="new-job-title" placeholder="e.g. Site Visit - Building A" class="w-full bg-gray-900 text-white border border-gray-700 rounded-lg p-3 mb-6 focus:border-emerald-500 outline-none">
+            <div class="flex gap-3">
+                <button onclick="closeNewJobModal()" class="flex-1 py-3 text-gray-400 font-medium hover:text-white rounded-lg hover:bg-gray-700/50 transition-colors">Cancel</button>
+                <button onclick="confirmNewJob()" class="flex-1 py-3 bg-emerald-500 text-white font-bold rounded-lg shadow-lg shadow-emerald-500/20 active:scale-95 transition-transform">Create</button>
+            </div>
+        </div>
+    </div>
 
-<script>
- // --- NEW CLOUDFLARE CONFIGURATION ---
-  
-  // 1. Get parameters directly from the browser URL
-  const urlParams = new URLSearchParams(window.location.search);
+    <!-- MODAL: SAVE DOC -->
+    <div id="save-modal" class="fixed inset-0 z-[80] hidden flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+        <div class="bg-gray-800 p-6 rounded-2xl w-full max-w-sm border border-gray-700 shadow-2xl">
+            <h3 class="text-lg font-bold text-white mb-1">Save Document</h3>
+            <p class="text-xs text-gray-400 mb-6">Select the document category.</p>
+            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Category</label>
+            <div class="relative mb-8">
+                <select id="doc-type-select" class="w-full bg-gray-900 text-white border border-gray-700 rounded-lg p-3 pr-10 focus:border-emerald-500 outline-none appearance-none">
+                    <option value="Service Report">Service Report</option>
+                    <option value="Quotation">Quotation</option>
+                    <option value="Permit to Work">Permit to Work</option>
+                    <option value="Purchase Request">Purchase Request</option>
+                    <option value="Invoice">Invoice</option>
+                    <option value="Purchase Order">Purchase Order 🌟</option>
+                    <option value="Other">Other</option>
+                </select>
+                <i data-lucide="chevron-down" class="absolute right-3 top-3.5 text-gray-400 w-5 h-5 pointer-events-none"></i>
+            </div>
+            <div id="ocr-loading" class="hidden flex items-center justify-center gap-3 mb-6 p-3 bg-gray-900/50 rounded-lg border border-gray-700">
+                <div class="loader"></div>
+                <div class="flex flex-col"><span class="text-xs text-emerald-400 animate-pulse font-bold">Smart Analysis Running...</span><span class="text-[10px] text-gray-500">Detecting IDs, Dates & Amounts</span></div>
+            </div>
+            <div class="flex gap-3">
+                <button id="btn-cancel-save" onclick="closeSaveModal()" class="flex-1 py-3 text-gray-400 font-medium hover:text-white rounded-lg hover:bg-gray-700/50 transition-colors">Cancel</button>
+                <button id="btn-confirm-save" onclick="confirmSave()" class="flex-1 py-3 bg-emerald-500 text-white font-bold rounded-lg shadow-lg shadow-emerald-500/20 active:scale-95 transition-transform flex justify-center items-center gap-2"><span>Save</span><i data-lucide="check" class="w-4 h-4"></i></button>
+            </div>
+        </div>
+    </div>
 
-  // 2. Map them to your variables
-  const gasDocId = urlParams.get('docId') || "";
-  
-  // Logic for Admin/User keys (using the secure method we discussed)
-  const key = urlParams.get('key');
-  const ADMIN_KEY = "HqPack_Master_2025"; // Your secret admin password
-  const USER_KEY = "View_Only_Mode";
-
-  // Check if the key in the URL matches the secret
-  const gasAdmin = (key === ADMIN_KEY) ? "true" : "";
-  const gasUser = (key === USER_KEY) ? "true" : "";
-
-  const gasAction = urlParams.get('action') || "";
-  const gasToken = urlParams.get('token') || "";
-
-  // 3. Dynamic URL (Works on any domain automatically)
-  // This automatically becomes "https://gatepass.pages.dev" or whatever your site is
-  let gasScriptUrl = window.location.href.split('?')[0];
-
-  
-  const firebaseConfig = {
-  apiKey: "AIzaSyBnqMlt8ilmYqM_H4B6Pfuu6FDP18Tz8xQ",
-  authDomain: "hqpackserver.firebaseapp.com",
-  projectId: "hqpackserver",
-  storageBucket: "hqpackserver.firebasestorage.app",
-  messagingSenderId: "1017834717196",
-  appId: "1:1017834717196:web:74d04553f8b6553980ee29"
-};
-
-  let db, auth;
-  try {
-    firebase.initializeApp(firebaseConfig);
-    db = firebase.firestore();
-    
-    // ENABLE OFFLINE PERSISTENCE
-    db.enablePersistence({ synchronizeTabs: true }).catch(err => {
-        console.warn("Persistence disabled:", err.code);
-    });
-    auth = firebase.auth();
-    auth.signInAnonymously().catch(function(error) {
-        console.error("Auth Error:", error);
-    });
-  } catch(e) {
-    console.error("Firebase Error", e);
-  }
-
-  const urlParams = new URLSearchParams(window.location.search);
-  let currentDocId = urlParams.get('docId');
-  if (!currentDocId && gasDocId && !gasDocId.includes("?=")) {
-      currentDocId = gasDocId;
-  }
-  currentDocId = currentDocId || "";
-  
-  // Robust Admin Check
-  let isAdminMode = (urlParams.get('admin') === 'true' || urlParams.get('カ') === '1');
-  if (!isAdminMode && gasAdmin && !gasAdmin.includes("?=")) {
-      isAdminMode = (gasAdmin === 'true' || gasAdmin === '1');
-  }
-  
-  // Robust User Check
-  let isUserMode = (urlParams.get('user') === 'true');
-  if (!isUserMode && gasUser && !gasUser.includes("?=")) {
-      isUserMode = (gasUser === 'true');
-  }
-  
-  const pads = {};
-  const vectorStore = { 'sig-requested': null, 'sig-hod': null, 'sig-security': null, 'sig-vendor': null, 'sig-returned-received': null, 'sig-returned-hod': null };
-  const initialSigs = { 'sig-requested': false, 'sig-hod': false, 'sig-security': false, 'sig-vendor': false, 'sig-returned-received': false, 'sig-returned-hod': false };
-  let modalPad = null, currentTargetId = null, isModalEmpty = true; 
-  let allGatePasses = [];
-  let currentSort = { column: 'timestamp', direction: 'desc' };
-  
-  let currentSecurityToken = ""; 
-
-  let attachedImages = []; 
-  let initialAttachment = "";
-  let customBaseUrl = "";
-  let deleteTargetId = "";
-
-  const MAX_TOTAL_SIZE = 950 * 1024; // 950KB safety limit
-
-  window.onload = function() {
-    try {
-        ['sig-requested','sig-hod','sig-security','sig-vendor','sig-returned-received','sig-returned-hod'].forEach(initPad);
-
-        for(let i=0; i<5; i++) addItemRow();
-
-        // PURPOSE Checkboxes
-        const purposeCheckboxes = document.querySelectorAll('input[name="purpose"]');
-        purposeCheckboxes.forEach(cb => {
-            cb.addEventListener('change', function() {
-                if (this.checked) {
-                    purposeCheckboxes.forEach(other => { if (other !== this) other.checked = false; });
-                }
-                updateReturnVisibility();
-            });
-        });
-        
-        // LOGISTIC Checkboxes
-        const logisticCheckboxes = document.querySelectorAll('input[name="logistic"]');
-        logisticCheckboxes.forEach(cb => {
-            cb.addEventListener('change', function() {
-                if (this.checked) {
-                    logisticCheckboxes.forEach(other => { if (other !== this) other.checked = false; });
-                }
-            });
-        });
-
-        document.getElementById('chk-returned').addEventListener('change', function() {
-            document.getElementById('returned-section').style.display = this.checked ? 'block' : 'none';
-            if(this.checked) {
-                setTimeout(() => {
-                    initPad('sig-returned-received');
-                    initPad('sig-returned-hod');
-                }, 100);
-            }
-        });
-
-        document.getElementById('name').addEventListener('input', function(e) {
-            document.getElementById('display-name-req').value = e.target.value;
-        });
-        
-        document.getElementById('stamp-input').addEventListener('change', handleStampFile);
-        document.getElementById('image-attachment-input').addEventListener('change', handleImageAttachmentFile);
-        
-        document.getElementById('purposeOthers').addEventListener('input', function() {
-            if (this.value.trim().length > 0) {
-                const otherCb = document.getElementById('purp-others');
-                if (otherCb && !otherCb.checked) {
-                    otherCb.click(); 
-                }
-            }
-        });
-
-        fetchMetadata();
-
-        // Check for 'action' param
-        let actionParam = urlParams.get('action');
-        if (!actionParam && typeof gasAction !== 'undefined' && gasAction && !gasAction.includes("?=")) {
-            actionParam = gasAction;
-        }
-
-        if (currentDocId) {
-          const backBtn = document.getElementById('btn-back-dashboard');
-          if (backBtn) backBtn.style.display = (isAdminMode || isUserMode) ? 'inline-block' : 'none'; 
-          
-          showLoadingView();
-          document.getElementById('serial-number-display').innerText = currentDocId;
-          loadDataFromFirebase(currentDocId);
-        } else if (isAdminMode || isUserMode) {
-          const backBtn = document.getElementById('btn-back-dashboard');
-          if (backBtn) backBtn.style.display = 'inline-block';
-          const settingsBtn = document.getElementById('btn-open-settings');
-          if (settingsBtn) settingsBtn.style.display = 'flex';
-          const qrBtn = document.getElementById('btn-open-qr');
-          if (qrBtn) qrBtn.style.display = 'flex';
-          
-          showDashboard();
-          setupDashboardListener(); 
-        } else if (actionParam === 'new') {
-          const backBtn = document.getElementById('btn-back-dashboard');
-          if (backBtn) backBtn.style.display = 'none';
-          loadNewForm();
-        } else {
-          document.getElementById('form-view').style.display = 'none';
-          document.getElementById('dashboard-view').style.display = 'none';
-          document.getElementById('landing-view').style.display = 'flex';
-        }
-    } catch (e) {
-        console.error("Init Error:", e);
-    }
-  };
-
-  function handleAttachmentClick() {
-      if (attachedImages.length > 0) {
-          openAttachmentModal();
-      } else {
-          document.getElementById('image-attachment-input').click();
-      }
-  }
-
-  function getSizeInBytes(base64String) {
-      if (!base64String) return 0;
-      return Math.ceil((base64String.length * 3) / 4); 
-  }
-
-  function calculateTotalSize() {
-      return attachedImages.reduce((sum, img) => sum + getSizeInBytes(img), 0);
-  }
-
-  function handleImageAttachmentFile(e) {
-      const file = e.target.files[0];
-      if (!file) return;
-
-      showToast("Compressing image...");
-      const reader = new FileReader();
-
-      reader.onload = function(event) {
-          const img = new Image();
-          img.onload = function() {
-              const canvas = document.createElement('canvas');
-              let width = img.width;
-              let height = img.height;
-              let maxDim = 800; 
-              
-              const calculateDimensions = (w, h, max) => {
-                  if (w > max || h > max) {
-                      if (w > h) { h *= max / w; w = max; }
-                      else { w *= max / h; h = max; }
-                  }
-                  return [w, h];
-              };
-
-              let [targetWidth, targetHeight] = calculateDimensions(width, height, maxDim);
-              
-              canvas.width = targetWidth;
-              canvas.height = targetHeight;
-              const ctx = canvas.getContext('2d');
-              ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
-              
-              let mimeType = 'image/webp';
-              let quality = 0.7; 
-              
-              let testData = canvas.toDataURL('image/webp', 0.1);
-              if (testData.indexOf('data:image/webp') !== 0) {
-                  mimeType = 'image/jpeg';
-              }
-
-              let newImage = canvas.toDataURL(mimeType, quality);
-              let newSize = getSizeInBytes(newImage);
-              
-              const currentTotal = calculateTotalSize();
-              const remainingSpace = MAX_TOTAL_SIZE - currentTotal;
-              const targetSize = Math.max(Math.min(180 * 1024, remainingSpace), 20 * 1024);
-
-              while (newSize > targetSize && (quality > 0.1 || maxDim > 300)) {
-                  if (quality > 0.3) {
-                      quality -= 0.1;
-                  } else {
-                      maxDim *= 0.8; 
-                      [targetWidth, targetHeight] = calculateDimensions(width, height, maxDim);
-                      canvas.width = targetWidth;
-                      canvas.height = targetHeight;
-                      ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
-                      quality = 0.6; 
-                  }
-                  newImage = canvas.toDataURL(mimeType, quality);
-                  newSize = getSizeInBytes(newImage);
-              }
-              
-              if (currentTotal + newSize > MAX_TOTAL_SIZE) {
-                  alert(`Cannot add photo. Storage limit reached.\n\nAvailable: ${(remainingSpace/1024).toFixed(0)}KB\nImage size: ${(newSize/1024).toFixed(0)}KB`);
-              } else {
-                  attachedImages.push(newImage);
-                  updateAttachmentUI();
-                  if(document.getElementById('attachment-modal').style.display === 'flex') {
-                      openAttachmentModal(); 
-                  } else {
-                      showToast("Image added (" + (newSize/1024).toFixed(0) + "KB)");
-                  }
-              }
-          };
-          img.src = event.target.result;
-      };
-      reader.readAsDataURL(file);
-      e.target.value = ""; 
-  }
-
-  function updateAttachmentUI() {
-      const btn = document.getElementById('btn-image-attach');
-      const badge = document.getElementById('attach-badge');
-      if (attachedImages.length > 0) {
-          btn.classList.add('has-file');
-          badge.style.display = 'flex';
-          badge.innerText = attachedImages.length;
-      } else {
-          btn.classList.remove('has-file');
-          badge.style.display = 'none';
-      }
-  }
-
-  function openAttachmentModal() {
-      const list = document.getElementById('attachment-list');
-      list.innerHTML = "";
-      
-      if (attachedImages.length === 0) {
-          list.innerHTML = "<p style='color:#666;'>No photos attached.</p>";
-      } else {
-          attachedImages.forEach((img, index) => {
-              const div = document.createElement('div');
-              div.className = 'attachment-item';
-              div.onclick = function(e) { 
-                  if(e.target.className !== 'btn-remove-img') openLightbox(img); 
-              };
-              
-              const deleteBtn = (!currentDocId || isAdminMode) 
-                  ? `<button class="btn-remove-img" onclick="event.stopPropagation(); removeImage(${index})">&times;</button>` 
-                  : '';
-              
-              div.innerHTML = `<img src="${img}">${deleteBtn}`;
-              list.appendChild(div);
-          });
-      }
-      
-      const totalSize = calculateTotalSize();
-      const percent = Math.min((totalSize / MAX_TOTAL_SIZE) * 100, 100);
-      const sizeDisplay = document.getElementById('size-text'); // Changed from 'attachment-size-display'
-      const sizeBar = document.getElementById('size-bar');      // Changed from 'attachment-size-bar'
-      
-      sizeDisplay.innerText = `${(totalSize / 1024).toFixed(0)} KB / ${(MAX_TOTAL_SIZE / 1024).toFixed(0)} KB`;
-      sizeBar.style.width = percent + "%";
-      
-      sizeBar.className = 'size-bar';
-      if (percent > 90) sizeBar.classList.add('danger');
-      else if (percent > 70) sizeBar.classList.add('warning');
-      
-      const addBtn = document.querySelector('#attachment-modal .btn-new');
-      if (currentDocId && !isAdminMode) {
-          addBtn.style.display = 'none';
-      } else {
-          addBtn.style.display = 'inline-block';
-      }
-      
-      document.getElementById('attachment-modal').style.display = 'flex';
-  }
-
-  function openLightbox(imgSrc) {
-      const modal = document.getElementById('lightbox-modal');
-      const img = document.getElementById('lightbox-img');
-      img.src = imgSrc;
-      modal.style.display = 'flex';
-  }
-
-  function closeLightbox() {
-      document.getElementById('lightbox-modal').style.display = 'none';
-  }
-
-  function removeImage(index) {
-      attachedImages.splice(index, 1);
-      updateAttachmentUI();
-      openAttachmentModal(); 
-  }
-
-  function closeAttachmentModal() {
-      document.getElementById('attachment-modal').style.display = 'none';
-  }
-
-  function removeAttachment() {
-      attachedImages = [];
-      updateAttachmentUI();
-      closeAttachmentModal();
-      showToast("All images removed.");
-  }
-
-  function fetchMetadata() {
-      if (!db) return;
-      db.collection("config").doc("metadata").get().then((doc) => {
-          if (doc.exists) {
-              const data = doc.data();
-              updateDocHeaderUI(data);
-              customBaseUrl = data.baseUrl || "";
-          }
-      });
-  }
-
-  function updateDocHeaderUI(data) {
-      document.getElementById('display-doc-no').innerText = ": " + (data.no || "HQMS-MY-00-HRA-00");
-      document.getElementById('display-doc-rev').innerText = ": " + (data.rev || "03");
-      document.getElementById('display-doc-date').innerText = ": " + (data.date || "02-SEP-2025");
-      document.getElementById('display-doc-owner').innerText = ": " + (data.owner || "HRA");
-  }
-
-  function openSettingsModal() {
-      // Logic to toggle visibility based on Admin Mode
-      const baseUrlContainer = document.getElementById('setting-base-url-container');
-      const archiveSection = document.getElementById('setting-archive-section');
-
-      if (!isAdminMode) {
-          if(baseUrlContainer) baseUrlContainer.style.display = 'none';
-          if(archiveSection) archiveSection.style.display = 'none';
-      } else {
-          if(baseUrlContainer) baseUrlContainer.style.display = 'block';
-          if(archiveSection) archiveSection.style.display = 'block';
-      }
-
-      // Populate current values from Database
-      if (db) {
-          db.collection("config").doc("metadata").get().then((doc) => {
-              if (doc.exists) {
-                  const data = doc.data();
-                  document.getElementById('setting-doc-no').value = data.no || "";
-                  document.getElementById('setting-doc-rev').value = data.rev || "";
-                  document.getElementById('setting-doc-date').value = data.date || "";
-                  document.getElementById('setting-doc-owner').value = data.owner || "";
-                  // Use optional chaining or check existence before setting value
-                  const urlInput = document.getElementById('setting-base-url');
-                  if(urlInput) urlInput.value = data.baseUrl || "";
-              }
-              document.getElementById('settings-modal').style.display = 'flex';
-          });
-      }
-  }
-
-  function closeSettingsModal() {
-      document.getElementById('settings-modal').style.display = 'none';
-  }
-
-  function saveSettings() {
-      const btn = document.getElementById('btn-save-settings');
-      btn.disabled = true;
-      btn.innerText = "Saving...";
-      
-      const metadata = {
-          no: document.getElementById('setting-doc-no').value,
-          rev: document.getElementById('setting-doc-rev').value,
-          date: document.getElementById('setting-doc-date').value,
-          owner: document.getElementById('setting-doc-owner').value,
-          baseUrl: document.getElementById('setting-base-url').value.trim()
-      };
-      
-      db.collection("config").doc("metadata").set(metadata)
-      .then(() => {
-          updateDocHeaderUI(metadata);
-          customBaseUrl = metadata.baseUrl;
-          showToast("Document metadata updated successfully!");
-          closeSettingsModal();
-      })
-      .catch((e) => {
-          console.error(e);
-          showToast("Error saving metadata.");
-      })
-      .finally(() => {
-          btn.disabled = false;
-          btn.innerText = "Save Changes";
-      });
-  }
-
-  function showToast(msg) {
-    const t = document.getElementById("toast");
-    t.innerText = msg;
-    t.className = "show";
-    setTimeout(() => { t.className = t.className.replace("show", ""); }, 3000);
-  }
-
-  function showLoadingView() {
-    document.getElementById('landing-view').style.display = 'none';
-    document.getElementById('dashboard-view').style.display = 'none';
-    document.getElementById('form-view').style.display = 'none';
-    document.getElementById('loading-view').style.display = 'flex';
-  }
-
-  function showDashboard() {
-    if (!isAdminMode && !isUserMode) {
-        showToast("Dashboard access restricted.");
-        loadNewForm();
-        return;
-    }
-    document.getElementById('landing-view').style.display = 'none';
-    document.getElementById('form-view').style.display = 'none';
-    document.getElementById('loading-view').style.display = 'none';
-    document.getElementById('dashboard-view').style.display = 'block';
-    
-    try {
-        let finalUrl = window.location.href.split('?')[0];
-        if (window.location.hostname.includes("google") && gasScriptUrl && gasScriptUrl.startsWith("http")) {
-              finalUrl = gasScriptUrl.split('?')[0];
-        }
-        
-        if (isAdminMode) {
-            window.history.pushState({path: finalUrl + "?admin=true"}, '', "?admin=true");
-        } else if (isUserMode) {
-            window.history.pushState({path: finalUrl + "?user=true"}, '', "?user=true");
-        }
-    } catch(e) {}
-  }
-
-  function showFormView() {
-    document.getElementById('landing-view').style.display = 'none';
-    document.getElementById('dashboard-view').style.display = 'none';
-    document.getElementById('loading-view').style.display = 'none'; 
-    document.getElementById('form-view').style.display = 'block';
-  }
-
-  function loadNewForm() {
-    currentDocId = ""; 
-    const backBtn = document.getElementById('btn-back-dashboard');
-    if (backBtn) backBtn.style.display = (isAdminMode || isUserMode) ? 'inline-block' : 'none';
-    
-    document.getElementById('btn-copy-link-header').style.display = 'none';
-    document.getElementById('btn-show-qr-header').style.display = 'none';
-    document.getElementById('archive-banner').style.display = 'none'; 
-    
-    document.getElementById('serial-number-display').innerText = "NEW";
-    const allInputs = document.querySelectorAll('input, textarea, select');
-    allInputs.forEach(el => {
-        el.value = "";
-        el.readOnly = false;
-        el.disabled = false;
-        if(el.type === 'checkbox') el.checked = false;
-    });
-    
-    document.getElementById('entryDate').valueAsDate = new Date();
-    updateReturnVisibility();
-    attachedImages = []; 
-    updateAttachmentUI();
-    
-    document.getElementById('btn-add-item').style.display = 'inline-flex';
-    document.getElementById('btn-del-item').style.display = 'inline-flex';
-    
-    ['sig-requested','sig-hod','sig-security','sig-vendor','sig-returned-received','sig-returned-hod'].forEach(id => {
-        pads[id].clear();
-        vectorStore[id] = null;
-        initialSigs[id] = false;
-        document.getElementById('hint-' + id).style.display = 'block';
-    });
-    const tbody = document.querySelector('#itemTable tbody');
-    tbody.innerHTML = "";
-    for(let i=0; i<5; i++) addItemRow();
-    
-    showFormView();
-  }
-
-  function closeSuccessModal() {
-    document.getElementById('success-modal').style.display = 'none';
-    if (isAdminMode || isUserMode) { 
-        showDashboard(); 
-        setupDashboardListener(); 
-    } 
-  }
-
-  function promptDelete(docId, event) {
-      event.stopPropagation();
-      deleteTargetId = docId;
-      document.getElementById('delete-target-id').innerText = docId;
-      document.getElementById('delete-confirmation-input').value = "";
-      document.getElementById('delete-confirm-modal').style.display = 'flex';
-  }
-
-  function closeDeleteModal() {
-      document.getElementById('delete-confirm-modal').style.display = 'none';
-      deleteTargetId = "";
-  }
-
-  function confirmDelete() {
-      const input = document.getElementById('delete-confirmation-input').value.trim();
-      if (input !== deleteTargetId) {
-          showToast("ID mismatch! Please type the exact ID to confirm.");
-          return;
-      }
-      
-      db.collection("gatepasses").doc(deleteTargetId).delete().then(() => {
-          db.collection("gatepasses_signatures").doc(deleteTargetId).delete();
-          db.collection("gatepasses_attachments").doc(deleteTargetId).delete();
-          showToast("Deleted " + deleteTargetId);
-          closeDeleteModal();
-      }).catch(e => {
-          console.error(e);
-          showToast("Error deleting document.");
-      });
-  }
-
-  function renderTable(data) {
-      const tbody = document.getElementById('dashboard-body');
-      tbody.innerHTML = "";
-      
-      if (!data || data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">No records found.</td><td></td></tr>';
-        return;
-      }
-      
-      data.forEach(row => {
-        const tr = document.createElement('tr');
-        
-        let dateStr = row.entryDate || (row.timestamp ? (row.timestamp.toDate ? row.timestamp.toDate().toLocaleDateString() : new Date(row.timestamp).toLocaleDateString()) : '-');
-        
-        let itemSummaryHtml = '-';
-        if (row.items && row.items.length > 0) {
-            const summaryText = row.items[0].description + (row.items.length > 1 ? ` +${row.items.length-1} more` : '');
-            const detailListHtml = row.items.map(i => `<div>• ${i.description} (${i.quantity})</div>`).join('');
-            itemSummaryHtml = `<div class="item-summary" onclick="toggleItemDetails(event, this)"><span>${summaryText}</span> <i class="fas fa-chevron-down"></i></div><div class="item-details" style="display:none;">${detailListHtml}</div>`;
-        }
-        
-        let deleteBtnHtml = '';
-        if (isAdminMode) {
-            deleteBtnHtml = `<button class="btn-row-delete" onclick="promptDelete('${row.docId}', event)" title="Delete"><i class="fas fa-trash"></i></button>`;
-        }
-        
-        tr.innerHTML = `<td><strong>${row.docId}</strong></td><td>${dateStr}</td><td>${row.name}</td><td>${row.department}</td><td>${itemSummaryHtml}</td><td><span class="status-badge status-${(row.status || '').replace(/\s/g,'')}">${row.status}</span></td><td style="text-align:center;">${deleteBtnHtml}</td>`;
-        tr.onclick = () => {
-           currentDocId = row.docId;
-           const backBtn = document.getElementById('btn-back-dashboard');
-           if (backBtn) backBtn.style.display = (isAdminMode || isUserMode) ? 'inline-block' : 'none';
-           document.getElementById('serial-number-display').innerText = currentDocId;
-           showLoadingView(); 
-           loadDataFromFirebase(currentDocId);
-           
-           let suffix = '';
-           if (isAdminMode) suffix = '&admin=true';
-           else if (isUserMode) suffix = '&user=true';
-           
-           try { window.history.pushState({}, '', '?docId=' + row.docId + suffix); } catch(e) {}
+    <!-- === SCRIPTS === -->
+    <script>
+        // CONFIG
+        const firebaseConfig = {
+            apiKey: "AIzaSyAOEhir1NRj8LdnFfx1rQwu4fE82VBfd98",
+            authDomain: "docuflowhq.firebaseapp.com",
+            projectId: "docuflowhq",
+            storageBucket: "docuflowhq.firebasestorage.app",
+            messagingSenderId: "1091273480971",
+            appId: "1:1091273480971:web:bcc5602a409ed3371fa00e"
         };
-        tbody.appendChild(tr);
-      });
-  }
-  
-  function applyGlobalFilter() {
-      const searchTerm = document.getElementById('globalSearch').value.toLowerCase();
-      
-      let filteredData = allGatePasses.filter(item => {
-          if (!searchTerm) return true;
-          const check = (val) => val && String(val).toLowerCase().includes(searchTerm);
-          return check(item.docId) || check(item.name) || check(item.department) || check(item.status) || (item.items && item.items.some(i => check(i.description)));
-      });
-      
-      filteredData.sort((a, b) => {
-          let valA = a[currentSort.column] || "";
-          let valB = b[currentSort.column] || "";
-          
-          if (currentSort.column === 'timestamp') {
-              valA = a.timestamp && a.timestamp.toMillis ? a.timestamp.toMillis() : (a.timestamp || 0);
-              valB = b.timestamp && b.timestamp.toMillis ? b.timestamp.toMillis() : (b.timestamp || 0);
-          } else {
-             valA = String(valA).toLowerCase(); valB = String(valB).toLowerCase();
-          }
-          
-          if (valA < valB) return currentSort.direction === 'asc' ? -1 : 1;
-          if (valA > valB) return currentSort.direction === 'asc' ? 1 : -1;
-          return 0;
-      });
-      renderTable(filteredData);
-  }
+        const STORAGE_LIMIT_MB = 900; 
 
-  function sortTable(column) {
-      currentSort.direction = (currentSort.column === column) ? (currentSort.direction === 'asc' ? 'desc' : 'asc') : 'asc';
-      currentSort.column = column;
-      
-      document.querySelectorAll('.sort-icon').forEach(icon => icon.className = 'fas fa-sort sort-icon');
-      const activeIcon = document.getElementById('sort-' + column);
-      if (activeIcon) activeIcon.className = `fas fa-sort-${currentSort.direction === 'asc' ? 'up' : 'down'} sort-icon sort-active`;
-      
-      applyGlobalFilter();
-  }
+        // STATE
+        let db = null;
+        let jobs = []; 
+        let archivedJobs = [];
+        let isViewingArchive = false;
+        let currentJobId = null;
+        let scanner = null;
+        let stream = null;
+        let fabricCanvas = null;
+        let isScanning = false;
+        let currentFilterIndex = 0; 
+        let currentSearchTerm = "";
 
-  function setupDashboardListener() {
-    if (!db) return;
-    db.collection("gatepasses").orderBy("timestamp", "desc").limit(100).onSnapshot((snapshot) => {
-        allGatePasses = [];
-        snapshot.forEach((doc) => allGatePasses.push(doc.data()));
-        applyGlobalFilter();
-    });
-  }
+        // --- 2. HELPERS (Must be first) ---
+        function parseSizeToBytes(sizeStr) {
+            if(!sizeStr) return 0;
+            const match = sizeStr.match(/([\d.]+)\s*(kb|mb|gb|b)/i);
+            if(!match) return 0;
+            const num = parseFloat(match[1]);
+            const unit = match[2].toLowerCase();
+            if(unit === 'kb') return num * 1024;
+            if(unit === 'mb') return num * 1024 * 1024;
+            if(unit === 'gb') return num * 1024 * 1024 * 1024;
+            return num;
+        }
 
-  function initPad(id) {
-    const canvas = document.getElementById(id);
-    if(!canvas) return;
-    const ratio = Math.max(window.devicePixelRatio || 1, 3);
-    canvas.width = canvas.parentElement.clientWidth * ratio;
-    canvas.height = canvas.parentElement.clientHeight * ratio;
-    canvas.getContext("2d").scale(ratio, ratio);
-    pads[id] = new SignaturePad(canvas, { backgroundColor: 'rgba(255,255,255,0)', penColor: 'black' });
-    pads[id].off();
-  }
-
-  function loadDataFromFirebase(docId) {
-    if (!db) return;
-    db.collection("gatepasses").doc(docId).get().then(async (doc) => {
-        if (doc.exists) {
-            const data = doc.data();
-            
-            // --- STRICT SECURITY CHECK START ---
-            
-            // Priority 1: Check if backend injected the token directly (Best for GAS)
-            let urlToken = typeof gasToken !== 'undefined' && gasToken && !gasToken.includes("initialToken") ? gasToken : null;
-            
-            // Priority 2: Standard URL search (Fallback)
-            if (!urlToken) {
-                const urlParams = new URLSearchParams(window.location.search);
-                urlToken = urlParams.get('token');
+        function calculateTotalUsage() {
+            let totalBytes = 0;
+            if(jobs) {
+                jobs.forEach(job => {
+                    if(job.documents) {
+                        job.documents.forEach(doc => { totalBytes += parseSizeToBytes(doc.size); });
+                    }
+                });
             }
-            
-            // Priority 3: Regex fallback
-            if (!urlToken) {
-                const match = window.location.href.match(/[?&]token=([^&]+)/);
-                if (match && match[1]) urlToken = match[1];
-            }
-            
-            // Store locally for UI logic
-            currentSecurityToken = data.securityToken || "";
+            return totalBytes;
+        }
 
-            // If this is an External User (Vendor/Public)...
-            if (!isAdminMode && !isUserMode) {
-                // STRICT RULE: Access is valid ONLY if both DB and URL have matching tokens.
-                if (!data.securityToken || urlToken !== data.securityToken) {
-                    // 1. Hide all functional views immediately
-                    document.getElementById('loading-view').style.display = 'none';
-                    document.getElementById('form-view').style.display = 'none';
-                    document.getElementById('dashboard-view').style.display = 'none';
-                    
-                    // 2. Show Custom "Invalid Token" Page (Dynamically injected)
-                    const landing = document.getElementById('landing-view');
-                    landing.style.display = 'flex';
-                    landing.innerHTML = `
-                        <div class="landing-card" style="border-top: 5px solid #f44336;">
-                            <div class="landing-icon" style="color: #f44336;"><i class="fas fa-ban"></i></div>
-                            <h2 style="color: #d32f2f; margin-bottom: 10px;">Access Denied</h2>
-                            <p style="font-weight: bold; color: #333;">Invalid Security Token</p>
-                            <p style="color: #666; font-size: 13px; margin-bottom: 20px;">
-                                The link you used does not match the security credentials for this document.
-                            </p>
-                            <div style="background: #ffebee; border: 1px solid #ffcdd2; padding: 10px; border-radius: 4px; font-size: 11px; color: #b71c1c; text-align: left;">
-                                <i class="fas fa-info-circle"></i> <strong>Security Notice:</strong><br>
-                                To view this Gate Pass, you must scan the original QR code generated by the system. Manually changing the ID number is restricted.
-                            </div>
-                        </div>
-                    `;
-                    return; 
+        function getJobStatus(job) {
+            if(!job || !job.documents) return 'Open';
+            const hasPO = job.documents.some(d => d.docCategory === 'Purchase Order');
+            return hasPO ? 'Completed' : 'Open';
+        }
+
+        function getDocBadgesHTML(documents) {
+            if(!documents) return '';
+            const presentCats = new Set(documents.map(d => d.docCategory));
+            const badgeOrder = [
+                { key: 'Service Report', label: 'SR', color: 'bg-blue-900/40 text-blue-300 border-blue-700/50' },
+                { key: 'Quotation', label: 'QT', color: 'bg-purple-900/40 text-purple-300 border-purple-700/50' },
+                { key: 'Permit to Work', label: 'PTW', color: 'bg-red-900/40 text-red-300 border-red-700/50' },
+                { key: 'Purchase Request', label: 'PR', color: 'bg-orange-900/40 text-orange-300 border-orange-700/50' },
+                { key: 'Invoice', label: 'INV', color: 'bg-pink-900/40 text-pink-300 border-pink-700/50' },
+                { key: 'Purchase Order', label: 'PO', color: 'bg-emerald-900/40 text-emerald-300 border-emerald-700/50' },
+                { key: 'Other', label: 'OTH', color: 'bg-gray-700/40 text-gray-400 border-gray-600/50' }
+            ];
+            let html = '';
+            badgeOrder.forEach(badge => {
+                if (presentCats.has(badge.key)) {
+                    html += `<span class="text-[9px] px-1.5 py-0.5 rounded border ${badge.color} uppercase tracking-tight font-bold shadow-sm">${badge.label}</span>`;
                 }
-            }
-            // --- SECURITY CHECK END ---
+            });
+            return html;
+        }
 
-            // CHECK IF ARCHIVED
-            if (data.archived === true) {
-                document.getElementById('archive-banner').style.display = 'flex';
-                // Only populate meta data, skip signatures/attachments fetch
-                populateForm(data);
-                showToast("This record is archived. Load backup file to view images.");
-                return;
-            } else {
-                document.getElementById('archive-banner').style.display = 'none';
-            }
-            
-            // Efficient Loading: Fetch Signatures AND Attachments in parallel
-            Promise.all([
-                db.collection("gatepasses_signatures").doc(docId).get(),
-                db.collection("gatepasses_attachments").doc(docId).get()
-            ]).then(([sigDoc, attDoc]) => {
-                
-                if (sigDoc.exists) {
-                    const sData = sigDoc.data();
-                    for (const [k, v] of Object.entries(sData)) {
-                        if (v && typeof v.toBase64 === 'function') {
-                            data[k] = firestoreBlobToString(v);
-                        } else {
-                            data[k] = v;
+        async function getDataUri(url) {
+            if (url.startsWith('data:')) return url;
+            try {
+                const response = await fetch(url);
+                const blob = await response.blob();
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blob);
+                });
+            } catch (error) { console.error("Error fetching image:", error); return null; }
+        }
+
+        async function ensureDocImageLoaded(job, doc) {
+            if (doc.src && doc.src.length > 100) return doc.src;
+            if (isViewingArchive) return null;
+            if (db && doc.id) {
+                try {
+                    const docRef = db.collection('jobs').doc(job.id).collection('scans').doc(doc.id);
+                    const snapshot = await docRef.get();
+                    if (snapshot.exists) {
+                        const data = snapshot.data();
+                        if (data.image_blob) {
+                            const uint8Array = data.image_blob.toUint8Array();
+                            const blob = new Blob([uint8Array], { type: 'image/webp' });
+                            const url = URL.createObjectURL(blob);
+                            doc.src = url;
+                            return url;
+                        } else if (data.src) {
+                            doc.src = data.src;
+                            return data.src;
                         }
                     }
+                } catch (e) { console.error("Error fetching image:", e); }
+            }
+            return null;
+        }
+
+        // --- 3. CORE UI FUNCTIONS ---
+        function updateStorageUI() {
+            const totalBytes = calculateTotalUsage();
+            const usedMB = (totalBytes / (1024 * 1024)).toFixed(1);
+            const percentage = Math.min((usedMB / STORAGE_LIMIT_MB) * 100, 100);
+
+            const textEl = document.getElementById('storage-text');
+            if(textEl) textEl.textContent = `${usedMB} MB / ${STORAGE_LIMIT_MB} MB`;
+            
+            const bar = document.getElementById('storage-bar');
+            if(bar) {
+                bar.style.width = `${percentage}%`;
+                if(percentage > 90) { bar.className = "h-full bg-red-500 w-0 transition-all duration-500"; }
+                else if (percentage > 70) { bar.className = "h-full bg-yellow-500 w-0 transition-all duration-500"; }
+                else { bar.className = "h-full bg-emerald-500 w-0 transition-all duration-500"; }
+            }
+
+            const alertBox = document.getElementById('archive-alert');
+            const hasCompleted = jobs.some(j => getJobStatus(j) === 'Completed');
+            if(alertBox) {
+                if(percentage >= 95 || hasCompleted) { alertBox.classList.remove('hidden'); } 
+                else { alertBox.classList.add('hidden'); }
+            }
+        }
+
+        function renderJobs() {
+            const container = document.getElementById('job-container');
+            let dataSource = jobs;
+            
+            if(isViewingArchive) {
+                dataSource = archivedJobs;
+                if(!document.getElementById('exit-archive-btn')) {
+                    const btn = document.createElement('button');
+                    btn.id = 'exit-archive-btn';
+                    btn.textContent = 'Exit Archive View';
+                    btn.className = 'mb-4 w-full py-2 bg-gray-800 border border-gray-600 rounded text-sm text-gray-300';
+                    btn.onclick = () => { isViewingArchive = false; archivedJobs = []; renderJobs(); };
+                    container.parentNode.insertBefore(btn, container);
                 }
-                
-                if (attDoc.exists) {
-                    const aData = attDoc.data();
-                    if (aData.attachment && Array.isArray(aData.attachment)) {
-                        data.attachment = aData.attachment.map(item => {
-                            if (item && typeof item.toBase64 === 'function') {
-                                return firestoreBlobToString(item);
+            } else {
+                const exitBtn = document.getElementById('exit-archive-btn');
+                if(exitBtn) exitBtn.remove();
+            }
+
+            let filteredJobs = dataSource;
+            if (currentSearchTerm) {
+                filteredJobs = dataSource.filter(job => {
+                    const basicMatch = job.client.toLowerCase().includes(currentSearchTerm) || 
+                                     job.id.toLowerCase().includes(currentSearchTerm);
+                    if (basicMatch) return true;
+                    if(job.documents) {
+                        const docMatch = job.documents.some(doc => 
+                            doc.ocrText && doc.ocrText.toLowerCase().includes(currentSearchTerm)
+                        );
+                        return docMatch;
+                    }
+                    return false;
+                });
+            }
+
+            if (!filteredJobs || filteredJobs.length === 0) {
+                container.innerHTML = `<div class="text-center text-gray-500 py-10">No jobs found. Click + to start.</div>`;
+                return;
+            }
+
+            const sortedJobs = [...filteredJobs].sort((a, b) => b.id.localeCompare(a.id));
+
+            container.innerHTML = sortedJobs.map(job => {
+                const status = getJobStatus(job);
+                const statusColor = status === 'Completed' ? 'bg-emerald-900/30 text-emerald-400 border-emerald-900/50' : 'bg-yellow-900/30 text-yellow-400 border-yellow-900/50';
+                const borderClass = isViewingArchive ? 'border-purple-500/50' : 'border-gray-700';
+
+                return `
+                <div onclick="openJobDetails('${job.id}')" class="bg-gray-800 p-4 rounded-xl border ${borderClass} active:bg-gray-700 transition-colors cursor-pointer flex justify-between items-center group relative overflow-hidden">
+                    <div class="absolute left-0 top-0 bottom-0 w-1 ${status === 'Completed' ? 'bg-emerald-500' : 'bg-yellow-500'}"></div>
+                    <div class="pl-3 w-full">
+                        <div class="flex items-center justify-between mb-1">
+                            <div class="flex items-center gap-2"><span class="text-xs font-mono text-gray-500">#${job.id}</span><span class="text-[10px] px-2 py-0.5 rounded border ${statusColor} font-bold tracking-wider uppercase">${status}</span></div>
+                            <span class="text-[10px] text-gray-500 mr-2">${job.date}</span>
+                        </div>
+                        <h3 class="font-bold text-white group-hover:text-emerald-400 transition-colors mb-2">${job.client}</h3>
+                        <div class="flex flex-wrap gap-1.5 min-h-[1.25rem]">${getDocBadgesHTML(job.documents)}</div>
+                    </div>
+                    <div class="flex items-center justify-center pl-2 border-l border-gray-700/50"><i data-lucide="chevron-right" class="w-5 h-5 text-gray-500 group-hover:text-white transition-colors"></i></div>
+                </div>
+            `}).join('');
+            lucide.createIcons();
+        }
+
+        // --- 4. DATA LOGIC ---
+        function loadJobsFromFirestore() {
+            if (!db) return;
+            db.collection('jobs').onSnapshot((snapshot) => {
+                const loadedJobs = [];
+                snapshot.forEach((doc) => { loadedJobs.push(doc.data()); });
+                jobs = loadedJobs;
+                renderJobs();
+                updateStorageUI();
+            }, (error) => console.error("Error syncing jobs:", error));
+        }
+
+        function updateConnectionStatus(isOnline) {
+            const statusEl = document.getElementById('connection-status');
+            if (isOnline) statusEl.innerHTML = '<div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div> Online';
+            else statusEl.innerHTML = '<div class="w-2 h-2 rounded-full bg-red-500"></div> Offline';
+        }
+
+        function initFirebase() {
+            if (typeof firebase !== 'undefined') {
+                try {
+                    const app = firebase.initializeApp(firebaseConfig);
+                    const firestore = firebase.firestore();
+                    firestore.enablePersistence().catch(err => console.warn('Persistence warning:', err.code));
+                    firebase.auth().signInAnonymously()
+                        .then(() => {
+                            console.log("👤 Signed in Anonymously");
+                            db = firestore; 
+                            updateConnectionStatus(true);
+                            loadJobsFromFirestore();
+                        })
+                        .catch((error) => {
+                            console.error("Auth Failed", error);
+                            updateConnectionStatus(false);
+                            if (error.code === 'auth/configuration-not-found' || error.code === 'auth/operation-not-allowed') {
+                                alert("Configuration Error: Enable Anonymous Auth in Firebase Console.");
                             }
-                            return item;
                         });
+                } catch (e) {
+                    console.error("Firebase Init Failed:", e);
+                    updateConnectionStatus(false);
+                }
+            } else { updateConnectionStatus(false); }
+        }
+
+        // --- 5. ACTION HANDLERS ---
+        function openNewJobModal() {
+            if(isViewingArchive) return alert("Please exit archive view.");
+            document.getElementById('new-job-modal').classList.remove('hidden');
+            document.getElementById('new-job-title').focus();
+        }
+        function closeNewJobModal() {
+            document.getElementById('new-job-modal').classList.add('hidden');
+            document.getElementById('new-job-title').value = '';
+        }
+        function confirmNewJob() {
+            const titleInput = document.getElementById('new-job-title');
+            const title = titleInput.value.trim();
+            if (!title) return alert("Please enter a job title.");
+            const newId = 'J-' + Math.floor(1000 + Math.random() * 9000);
+            const dateStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            
+            const newJob = { id: newId, client: title, date: dateStr, documents: [] };
+            if (db) { db.collection('jobs').doc(newId).set(newJob).catch(e => console.error(e)); }
+            
+            closeNewJobModal();
+        }
+
+        // --- DETAILS ---
+        function openJobDetails(id) {
+            currentJobId = id;
+            const sourceList = isViewingArchive ? archivedJobs : jobs;
+            const job = sourceList.find(j => j.id === id);
+            const status = getJobStatus(job);
+            
+            document.getElementById('detail-client').textContent = job.client;
+            document.getElementById('detail-id').textContent = '#' + job.id;
+            const statusEl = document.getElementById('detail-status');
+            statusEl.textContent = status;
+            statusEl.className = status === 'Completed'
+                ? 'text-[10px] px-2 py-1 rounded bg-emerald-900/50 text-emerald-400 font-bold uppercase tracking-wider border border-emerald-800'
+                : 'text-[10px] px-2 py-1 rounded bg-yellow-900/50 text-yellow-400 font-bold uppercase tracking-wider border border-yellow-800';
+
+            const scanFab = document.getElementById('scan-fab');
+            const archiveBadge = document.getElementById('detail-archive-badge');
+            if (isViewingArchive) { scanFab.classList.add('hidden'); archiveBadge.classList.remove('hidden'); } 
+            else { scanFab.classList.remove('hidden'); archiveBadge.classList.add('hidden'); }
+            
+            renderDocumentList(job);
+            document.getElementById('view-job-details').classList.remove('hidden');
+        }
+        function closeJobDetails() {
+            document.getElementById('view-job-details').classList.add('hidden');
+            currentJobId = null;
+        }
+
+        function renderDocumentList(job) {
+            const list = document.getElementById('document-list');
+            const emptyState = document.getElementById('empty-docs');
+            if (!job.documents || job.documents.length === 0) { list.innerHTML = ''; emptyState.classList.remove('hidden'); return; }
+            emptyState.classList.add('hidden');
+            
+            list.innerHTML = job.documents.map(doc => {
+                let icon = 'file-text';
+                if (doc.type === 'img' || doc.type === 'scan') icon = 'image';
+                if (doc.type === 'pdf') icon = 'file';
+                const isPO = doc.docCategory === 'Purchase Order';
+                
+                const actionButtons = isViewingArchive 
+                    ? `<button class="p-2 text-gray-500 cursor-not-allowed border border-gray-700 rounded"><i data-lucide="lock" class="w-4 h-4"></i></button>`
+                    : `<button onclick="editExistingDoc('${doc.id}')" class="p-2 text-blue-400 hover:text-white bg-blue-900/20 rounded border border-blue-900/50"><i data-lucide="pen-tool" class="w-4 h-4"></i></button>`;
+
+                let metaHtml = '';
+                if (doc.smartData) {
+                    if (doc.smartData.id) metaHtml += `<span class="text-[9px] text-emerald-300 bg-emerald-900/40 px-1.5 py-0.5 rounded mr-1 font-mono tracking-wide border border-emerald-800">${doc.smartData.id}</span>`;
+                    if (doc.smartData.amount) metaHtml += `<span class="text-[9px] text-yellow-300 bg-yellow-900/40 px-1.5 py-0.5 rounded font-mono border border-yellow-800">\$${doc.smartData.amount}</span>`;
+                }
+
+                return `
+                <div class="bg-gray-800 p-3 rounded-lg border border-gray-700 flex justify-between items-center">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded bg-gray-900 flex items-center justify-center text-gray-400 relative">
+                            <i data-lucide="${icon}" class="w-5 h-5"></i>
+                            ${isPO ? '<div class="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full border border-gray-900"></div>' : ''}
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2 mb-0.5">
+                                <p class="text-sm font-medium text-gray-200">${doc.name}</p>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                ${metaHtml}
+                                <span class="text-[10px] text-gray-500">${doc.size || ''}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="downloadSinglePDF('${doc.id}')" class="p-2 text-red-400 hover:text-white bg-red-900/20 rounded border border-red-900/50"><i data-lucide="file-text" class="w-4 h-4"></i></button>
+                        ${actionButtons}
+                    </div>
+                </div>
+            `}).join('');
+            lucide.createIcons();
+        }
+
+        // --- SCANNER / EDITOR ---
+        function editExistingDoc(docId) {
+            if(isViewingArchive) return;
+            const job = jobs.find(j => j.id === currentJobId);
+            const doc = job.documents.find(d => d.id === docId);
+            if(!doc) return;
+            const btn = event.currentTarget; 
+            const originalIcon = btn.innerHTML;
+            btn.innerHTML = '<div class="loader w-4 h-4 border-t-blue-500"></div>';
+            ensureDocImageLoaded(job, doc).then(imgSrc => {
+                btn.innerHTML = originalIcon;
+                if (imgSrc) {
+                    document.getElementById('view-job-details').classList.add('hidden');
+                    openEditor(imgSrc);
+                } else { alert("Could not load image. It might be missing from cloud or offline."); }
+            });
+        }
+
+        function openScanner() {
+            document.getElementById('view-scanner').classList.remove('hidden');
+            const feedback = document.getElementById('scan-feedback');
+            feedback.classList.remove('hidden'); feedback.classList.add('flex');
+            const video = document.getElementById('video');
+            const highlightCanvas = document.getElementById('highlight-canvas');
+            const canvasCtx = highlightCanvas.getContext('2d');
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }).then((s) => {
+                stream = s; video.srcObject = stream; isScanning = true;
+                document.querySelector('.scanner-overlay')?.classList.add('scanning');
+                const scanLoop = () => {
+                    if (!isScanning) return;
+                    if (video.readyState === video.HAVE_ENOUGH_DATA && scanner) {
+                        highlightCanvas.width = video.videoWidth; highlightCanvas.height = video.videoHeight;
+                        canvasCtx.clearRect(0, 0, highlightCanvas.width, highlightCanvas.height);
+                        try { scanner.highlightPaper(highlightCanvas, video); } catch(e) {}
+                    }
+                    requestAnimationFrame(scanLoop);
+                };
+                scanLoop();
+            }).catch(err => { console.warn(err); alert("Camera unavailable. Use upload/paste."); });
+        }
+        function closeScanner() {
+            isScanning = false; if (stream) stream.getTracks().forEach(track => track.stop());
+            document.getElementById('view-scanner').classList.add('hidden');
+        }
+        function triggerDocUpload() { document.getElementById('doc-upload-input').click(); }
+        function handleDocUpload(input) {
+            if (input.files && input.files[0]) {
+                const file = input.files[0];
+                if (!file.type.startsWith('image/')) { alert("⚠️ Restricted Format\n\nOnly Image files (JPG, PNG) are allowed."); input.value = ''; return; }
+                const reader = new FileReader();
+                reader.onload = function(e) { closeScanner(); openEditor(e.target.result); }
+                reader.readAsDataURL(file);
+            }
+            input.value = ''; 
+        }
+        function triggerStampInput() { document.getElementById('stamp-input').click(); }
+        function processStampUpload(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = new Image(); img.src = e.target.result;
+                    img.onload = function() {
+                        const processedDataUrl = removeWhiteBackground(img);
+                        addStampImageToCanvas(processedDataUrl);
                     }
                 }
-                
-                populateForm(data);
-            }).catch(err => {
-                console.error("Error loading extra data:", err);
-                populateForm(data);
+                reader.readAsDataURL(input.files[0]);
+            }
+            input.value = ''; 
+        }
+        function removeWhiteBackground(imgObj) {
+            const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d');
+            canvas.width = imgObj.width; canvas.height = imgObj.height; ctx.drawImage(imgObj, 0, 0);
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height); const data = imgData.data; const threshold = 200;
+            for (let i = 0; i < data.length; i += 4) { if (data[i] > threshold && data[i + 1] > threshold && data[i + 2] > threshold) { data[i + 3] = 0; } }
+            ctx.putImageData(imgData, 0, 0); return canvas.toDataURL('image/webp');
+        }
+        function addStampImageToCanvas(dataUrl) {
+            if (!fabricCanvas) return;
+            fabric.Image.fromURL(dataUrl, function(img) {
+                const targetScale = (fabricCanvas.width * 0.3) / img.width;
+                img.set({ left: fabricCanvas.width / 2 - (img.width * targetScale) / 2, top: fabricCanvas.height / 2 - (img.height * targetScale) / 2, scaleX: targetScale, scaleY: targetScale, cornerColor: 'blue', cornerStyle: 'circle' });
+                fabricCanvas.add(img); fabricCanvas.setActiveObject(img);
             });
-        } else {
-            showToast("Document not found");
-            loadNewForm(); // Fallback if document doesn't exist
         }
-    }).catch(err => {
-        console.error("Firebase load error:", err);
-        showToast("Error loading document");
-        loadNewForm(); // Fallback on error
-    });
-  }
-
-  // --- Archive Functionality (CBOR) ---
-  async function archiveReturnedPasses() {
-      let startId = document.getElementById('archive-start-id').value.trim();
-      let endId = document.getElementById('archive-end-id').value.trim();
-      
-      const formatId = (val) => {
-          if (!val) return "";
-          if (val.toUpperCase().startsWith("PG-")) return val.toUpperCase();
-          if (!isNaN(val)) return "PG-" + String(val).padStart(4, '0');
-          return val;
-      };
-      
-      startId = formatId(startId);
-      endId = formatId(endId);
-      
-      if (!startId || !endId) {
-          alert("Please specify both 'From ID' and 'To ID' range.");
-          return;
-      }
-
-      if(!confirm(`This will export 'Returned' Gate Passes from ${startId} to ${endId} as a CBOR file and DELETE heavy data from the database.\n\nAre you sure?`)) return;
-      
-      const btn = document.querySelector('#setting-archive-section button');
-      const originalText = btn.innerHTML;
-      btn.innerText = "Scanning...";
-      btn.disabled = true;
-      
-      try {
-          let query = db.collection("gatepasses")
-                        .where("docId", ">=", startId)
-                        .where("docId", "<=", endId);
-              
-          const snapshot = await query.get();
-              
-          const docsToProcess = snapshot.docs.filter(doc => {
-              const d = doc.data();
-              return d.status === "Returned" && d.archived !== true;
-          });
-          
-          if(docsToProcess.length === 0) {
-              alert(`No unarchived 'Returned' passes found in range ${startId} - ${endId}.`);
-              btn.innerHTML = originalText;
-              btn.disabled = false;
-              return;
-          }
-          
-          btn.innerText = `Fetching ${docsToProcess.length} records...`;
-          
-          const archiveData = {};
-          const batch = db.batch();
-          let count = 0;
-          
-          for(const doc of docsToProcess) {
-              const docId = doc.id;
-              const [sigDoc, attDoc] = await Promise.all([
-                  db.collection("gatepasses_signatures").doc(docId).get(),
-                  db.collection("gatepasses_attachments").doc(docId).get()
-              ]);
-              
-              if(sigDoc.exists || attDoc.exists) {
-                  const sigData = sigDoc.exists ? sigDoc.data() : {};
-                  const attData = attDoc.exists ? attDoc.data() : {};
-                  
-                  const cleanSigs = {};
-                  for (const [k, v] of Object.entries(sigData)) {
-                      if (v && typeof v.toBase64 === 'function') cleanSigs[k] = firestoreBlobToString(v);
-                      else cleanSigs[k] = v;
-                  }
-                  
-                  const cleanAtts = {};
-                  if (attData.attachment && Array.isArray(attData.attachment)) {
-                      cleanAtts.attachment = attData.attachment.map(a => {
-                          if (a && typeof a.toBase64 === 'function') return firestoreBlobToString(a);
-                          return a;
-                      });
-                  }
-
-                  archiveData[docId] = {
-                      signatures: cleanSigs,
-                      attachments: cleanAtts
-                  };
-                  
-                  if(sigDoc.exists) batch.delete(db.collection("gatepasses_signatures").doc(docId));
-                  if(attDoc.exists) batch.delete(db.collection("gatepasses_attachments").doc(docId));
-                  
-                  batch.update(db.collection("gatepasses").doc(docId), { archived: true });
-                  count++;
-              }
-          }
-          
-          if(count === 0) {
-              alert("Found records, but they had no heavy data to archive.");
-              btn.innerHTML = originalText;
-              btn.disabled = false;
-              return;
-          }
-          
-          const cborBuffer = CBOR.encode(archiveData);
-          const blob = new Blob([cborBuffer], {type: "application/cbor"});
-          
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `gatepass_archive_${startId}_to_${endId}.cbor`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          
-          setTimeout(async () => {
-              if(confirm(`Export downloaded (${(blob.size/1024).toFixed(1)} KB). Proceed to DELETE heavy data for ${count} records from database?`)) {
-                  await batch.commit();
-                  alert("Archive Complete! Database storage freed.");
-                  location.reload(); 
-              } else {
-                  alert("Deletion cancelled. Data remains in database.");
-                  btn.innerHTML = originalText;
-                  btn.disabled = false;
-              }
-          }, 1000);
-          
-      } catch(e) {
-          console.error(e);
-          alert("Archive failed: " + e.message);
-          btn.innerHTML = originalText;
-          btn.disabled = false;
-      }
-  }
-
-  // --- Restore Functionality ---
-  function handleRestoreFile(input) {
-      const file = input.files[0];
-      if(!file) return;
-      
-      const reader = new FileReader();
-      
-      const isCbor = file.name.toLowerCase().endsWith('.cbor');
-
-      reader.onload = function(e) {
-          try {
-              let archive;
-              if (isCbor) {
-                   archive = CBOR.decode(e.target.result);
-              } else {
-                   archive = JSON.parse(e.target.result);
-              }
-
-              const dataForCurrent = archive[currentDocId];
-              
-              if(dataForCurrent) {
-                  const combinedData = {
-                      ...dataForCurrent.signatures,
-                      ...dataForCurrent.attachments
-                  };
-                  
-                  if(combinedData.attachment) {
-                      attachedImages = combinedData.attachment;
-                      updateAttachmentUI();
-                  }
-                  
-                  ['sigRequested','sigHod','sigSecurity','sigVendor','sigReturnedReceived','sigReturnedHod'].forEach(key => {
-                      const idMap = {
-                          'sigRequested': 'sig-requested',
-                          'sigHod': 'sig-hod',
-                          'sigSecurity': 'sig-security',
-                          'sigVendor': 'sig-vendor',
-                          'sigReturnedReceived': 'sig-returned-received',
-                          'sigReturnedHod': 'sig-returned-hod'
-                      };
-                      if(combinedData[key]) {
-                          restoreSignature(idMap[key], combinedData[key]);
-                      }
-                  });
-                  
-                  showToast("Archive data loaded successfully!");
-                  document.getElementById('archive-banner').style.display = 'none'; 
-              } else {
-                  alert("This archive file does not contain data for Gate Pass ID: " + currentDocId);
-              }
-          } catch(err) {
-              console.error(err);
-              alert("Invalid archive file format.");
-          }
-      };
-      
-      if (isCbor) {
-          reader.readAsArrayBuffer(file);
-      } else {
-          reader.readAsText(file);
-      }
-      input.value = ""; 
-  }
-
-  function populateForm(data) {
-    const lock = (id, val) => {
-        const el = document.getElementById(id);
-        if (!el) return;
-        el.value = val || "";
-        if (!isAdminMode && val) {
-            if (el.tagName === "SELECT" || el.type === "date" || el.type === "time") {
-                el.disabled = true;
-            } else {
-                el.readOnly = true;
-            }
-        } else {
-            if (el.tagName === "SELECT" || el.type === "date" || el.type === "time") {
-                el.disabled = false;
-            } else {
-                el.readOnly = false;
-            }
-        }
-    };
-
-    lock('name', data.name);
-    document.getElementById('display-name-req').value = data.name || "";
-    lock('empNo', data.empNo); lock('department', data.department); lock('position', data.position);
-    lock('vehicleNo', data.vehicleNo); lock('location', data.location); lock('entryDate', data.entryDate); lock('purposeOthers', data.purposeOthers);
-    
-    const logCheckboxes = document.querySelectorAll('input[name="logistic"]');
-    logCheckboxes.forEach(el => {
-        el.checked = false;
-        if (!isAdminMode) el.disabled = false; 
-    });
-    
-    if (data.logistic) {
-        const logVal = String(data.logistic).trim();
-        
-        if (logVal === 'Car/Lorry') document.getElementById('log-car').checked = true;
-        else if (logVal === 'Motorcycle') document.getElementById('log-moto').checked = true;
-        else if (logVal === 'In-person') document.getElementById('log-person').checked = true;
-        
-        if (!isAdminMode) {
-            logCheckboxes.forEach(el => el.disabled = true);
-        }
-    }
-
-    const purpCheckboxes = document.querySelectorAll('input[name="purpose"]');
-    purpCheckboxes.forEach(el => {
-        el.checked = false;
-        if (!isAdminMode) el.disabled = false; 
-    });
-    
-    if (data.purpose) {
-        let pVal = "";
-        if (Array.isArray(data.purpose) && data.purpose.length > 0) {
-            pVal = data.purpose[0]; 
-        } else if (typeof data.purpose === 'string') {
-            pVal = data.purpose;
-        }
-        
-        pVal = String(pVal).trim();
-        if (pVal === 'Transfer') document.getElementById('purp-transfer').checked = true;
-        else if (pVal === 'Repair') document.getElementById('chk-repair').checked = true;
-        else if (pVal === 'Sample') document.getElementById('chk-sample').checked = true;
-        else if (pVal === 'Others') document.getElementById('purp-others').checked = true;
-        
-        if (!isAdminMode && pVal) {
-            purpCheckboxes.forEach(el => el.disabled = true);
-        }
-    }
-    
-    if (data.purposeRepair === true || (typeof data.purpose === 'string' && data.purpose === 'Repair') || (Array.isArray(data.purpose) && data.purpose.includes('Repair'))) {
-        document.getElementById('chk-repair').checked = true;
-    }
-    if ((typeof data.purpose === 'string' && data.purpose === 'Sample') || (Array.isArray(data.purpose) && data.purpose.includes('Sample'))) {
-        document.getElementById('chk-sample').checked = true;
-    }
-
-    updateReturnVisibility();
-    const chkReturned = document.getElementById('chk-returned');
-    chkReturned.checked = data.itemReturned || false;
-    if (!isAdminMode && data.itemReturned) chkReturned.disabled = true; else chkReturned.disabled = false;
-    
-    document.getElementById('returned-section').style.display = chkReturned.checked ? 'block' : 'none';
-    
-    if (chkReturned.checked) {
-        setTimeout(() => {
-            initPad('sig-returned-received');
-            initPad('sig-returned-hod');
-        }, 50);
-    }
-    
-    if (Array.isArray(data.attachment)) {
-        attachedImages = data.attachment;
-    } else if (data.attachment) {
-        attachedImages = [data.attachment];
-    } else {
-        attachedImages = [];
-    }
-    updateAttachmentUI();
-    
-    document.getElementById('btn-copy-link-header').style.display = 'inline-block';
-    document.getElementById('btn-show-qr-header').style.display = 'inline-block';
-    
-    ['sig-requested','sig-hod','sig-security','sig-vendor','sig-returned-received','sig-returned-hod'].forEach(id => {
-        const camelId = id.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
-        initialSigs[id] = !!data[camelId];
-        restoreSignature(id, data[camelId]);
-    });
-
-    ['vendorName','vendorIC','vendorDate','vendorCompany','vendorRemarks1','vendorRemarks2','returnedName','returnedDate','returnedHodName','returnedHodDate','returnedRemarks','secName','secTime','hodName'].forEach(id => {
-        lock(id, data[id]);
-    });
-
-    const tbody = document.querySelector('#itemTable tbody');
-    tbody.innerHTML = "";
-    if (data.items && data.items.length > 0) {
-      data.items.forEach(item => { 
-          addItemRow(true);
-          const r = tbody.rows[tbody.rows.length-1]; 
-          r.cells[1].children[0].value = item.description; 
-          r.cells[2].children[0].value = item.condition; 
-          r.cells[3].children[0].value = item.quantity; 
-      });
-      if (!isAdminMode) {
-          document.getElementById('btn-add-item').style.display = 'none';
-          document.getElementById('btn-del-item').style.display = 'none';
-      }
-    } else {
-      addItemRow();
-      document.getElementById('btn-add-item').style.display = 'inline-flex';
-      document.getElementById('btn-del-item').style.display = 'inline-flex';
-    }
-    
-    setTimeout(() => {
-        ['sig-requested','sig-hod','sig-security','sig-vendor','sig-returned-received','sig-returned-hod'].forEach(id => {
-            const camelId = id.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
-            initialSigs[id] = !!data[camelId];
-            restoreSignature(id, data[camelId]);
-        });
-    }, 300); 
-    
-    showFormView();
-  }
-
-  function restoreSignature(id, base64) {
-    if (!base64) return;
-    const canvas = document.getElementById(id);
-    const ctx = canvas.getContext('2d');
-    const img = new Image();
-    img.onload = function() {
-        pads[id].clear(); ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); 
-        const scale = Math.min(canvas.width / img.width, canvas.height / img.height);
-        ctx.drawImage(img, (canvas.width - img.width * scale) / 2, (canvas.height - img.height * scale) / 2, img.width * scale, img.height * scale);
-        ctx.restore(); document.getElementById('hint-' + id).style.display = 'none';
-    };
-    img.src = base64;
-  }
-
-  function addItemRow(lockRow = false) {
-    const tbody = document.querySelector('#itemTable tbody');
-    const row = tbody.insertRow();
-    row.insertCell(0).innerText = tbody.rows.length;
-    const i1 = document.createElement('input'); i1.type='text'; row.insertCell(1).appendChild(i1);
-    const i2 = document.createElement('input'); i2.type='text'; row.insertCell(2).appendChild(i2);
-    const i3 = document.createElement('input'); i3.type='number'; row.insertCell(3).appendChild(i3);
-    if (lockRow && !isAdminMode) { i1.readOnly = true; i2.readOnly = true; i3.readOnly = true; }
-  }
-
-  function deleteItemRow() {
-    const tbody = document.querySelector('#itemTable tbody');
-    if (tbody.rows.length > 0) tbody.deleteRow(-1);
-  }
-
-  function updateReturnVisibility() {
-      const isRepair = document.getElementById('chk-repair').checked;
-      const isSample = document.getElementById('chk-sample').checked;
-      const returnLabel = document.getElementById('label-returned');
-      const returnText = document.getElementById('text-returned');
-      const returnContainer = document.getElementById('returned-container');
-      
-      if (isRepair || isSample) {
-          returnContainer.style.display = 'block'; returnLabel.style.display = 'inline-flex';
-          if (isRepair) {
-              returnText.innerText = "Item Returned? (Show details)";
-              document.getElementById('vendor-section').style.display = 'block';
-              setTimeout(()=>initPad('sig-vendor'), 100);
-          } else { returnText.innerText = "Sample Returned? (Show details)"; document.getElementById('vendor-section').style.display = 'none'; }
-      } else { returnContainer.style.display = 'none'; document.getElementById('chk-returned').checked = false; document.getElementById('returned-section').style.display = 'none'; document.getElementById('vendor-section').style.display = 'none'; }
-  }
-
-  function triggerStampUpload(targetId) {
-    const nameMap = {'sig-requested': 'name','sig-hod': 'hodName','sig-security': 'secName','sig-vendor': 'vendorName','sig-returned-received': 'returnedName','sig-returned-hod': 'returnedHodName'};
-    const nameInput = document.getElementById(nameMap[targetId]);
-    if (nameInput && !nameInput.value.trim()) { showToast("please fill in the Name field before signing"); nameInput.focus(); return; }
-    if (currentDocId && initialSigs[targetId] && !isAdminMode) { showToast("Only Admins can clear or replace existing signatures."); return; }
-    currentTargetId = targetId; document.getElementById('stamp-input').click();
-  }
-
-  function handleStampFile(e) {
-    const file = e.target.files[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = function(event) {
-        const img = new Image();
-        img.onload = function() {
-            const tid = currentTargetId; const canvas = document.getElementById(tid); const ctx = canvas.getContext('2d');
-            const ratio = Math.max(window.devicePixelRatio || 1, 3); pads[tid].clear();
-            ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height);
-            const scale = Math.min(canvas.width / img.width, canvas.height / img.height);
-            ctx.drawImage(img, (canvas.width - img.width * scale) / 2, (canvas.height - img.height * scale) / 2, img.width * scale, img.height * scale);
-            ctx.restore(); document.getElementById('hint-' + tid).style.display = 'none';
-            if (tid === 'sig-security') document.getElementById('secTime').value = new Date().toTimeString().slice(0,5);
-            if (['sig-vendor', 'sig-returned-received', 'sig-returned-hod'].includes(tid)) {
-                const dateMap = {'sig-vendor':'vendorDate','sig-returned-received':'returnedDate','sig-returned-hod':'returnedHodDate'};
-                const dEl = document.getElementById(dateMap[tid]); if(!dEl.value) dEl.valueAsDate = new Date();
-            }
-        };
-        img.src = event.target.result;
-    };
-    reader.readAsDataURL(file); e.target.value = ""; 
-  }
-
-  function openSigModal(targetId, title) {
-    const nameMap = {'sig-requested': 'name','sig-hod': 'hodName','sig-security': 'secName','sig-vendor': 'vendorName','sig-returned-received': 'returnedName','sig-returned-hod': 'returnedHodName'};
-    const nameInput = document.getElementById(nameMap[targetId]);
-    if (nameInput && !nameInput.value.trim()) { showToast("please fill in the Name field before signing"); nameInput.focus(); return; }
-    if (currentDocId && initialSigs[targetId] && !isAdminMode) { showToast("This signature is locked and cannot be modified."); return; }
-    
-    currentTargetId = targetId; 
-    
-    if (window.innerWidth < 768) {
-        try {
-            const elem = document.documentElement;
-            if (elem.requestFullscreen) {
-                elem.requestFullscreen().catch(err => console.log(err));
-            }
-        } catch(e) {}
-    }
-
-    document.getElementById('sig-modal').style.display = 'flex'; document.getElementById('sig-modal-title').innerText = title;
-    const clearBtn = document.querySelector('#sig-modal .btn-clear');
-    clearBtn.style.display = (currentDocId && initialSigs[targetId] && !isAdminMode) ? 'none' : 'inline-block';
-    
-    const mc = document.getElementById('modal-canvas'); 
-    if (modalPad) modalPad.off();
-    modalPad = new SignaturePad(mc, { backgroundColor: 'white', penColor: 'black', minWidth: 3, maxWidth: 6 });
-    resizeModalCanvas(mc);
-    if (vectorStore[targetId]) modalPad.fromData(vectorStore[targetId]);
-    window.addEventListener('resize', handleModalResize);
-  }
-
-  function handleModalResize() {
-      if(document.getElementById('sig-modal').style.display === 'none' || !modalPad) return;
-      
-      const mc = document.getElementById('modal-canvas');
-      const data = modalPad.toData();
-      
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      let empty = true;
-      data.forEach(s => s.points.forEach(p => {
-          empty = false;
-          if (p.x < minX) minX = p.x;
-          if (p.y < minY) minY = p.y;
-          if (p.x > maxX) maxX = p.x;
-          if (p.y > maxY) maxY = p.y;
-      }));
-      
-      resizeModalCanvas(mc);
-      
-      if (empty) return;
-
-      const ratio = Math.max(window.devicePixelRatio || 1, 3);
-      const newWidth = mc.width / ratio;
-      const newHeight = mc.height / ratio;
-      
-      const sigWidth = Math.max(maxX - minX, 1);
-      const sigHeight = Math.max(maxY - minY, 1);
-      const padding = 20; 
-      
-      const availableW = Math.max(newWidth - (padding * 2), 1);
-      const availableH = Math.max(newHeight - (padding * 2), 1);
-      
-      const scaleX = availableW / sigWidth;
-      const scaleY = availableH / sigHeight;
-      const scale = Math.min(scaleX, scaleY, 1); 
-      
-      const sigCenterX = (minX + maxX) / 2;
-      const sigCenterY = (minY + maxY) / 2;
-      const canvasCenterX = newWidth / 2;
-      const canvasCenterY = newHeight / 2;
-      
-      const newData = data.map(stroke => {
-          return {
-              ...stroke,
-              points: stroke.points.map(p => {
-                  return {
-                      x: (p.x - sigCenterX) * scale + canvasCenterX,
-                      y: (p.y - sigCenterY) * scale + canvasCenterY,
-                      pressure: p.pressure,
-                      time: p.time
-                  };
-              })
-          };
-      });
-      modalPad.fromData(newData); 
-  }
-
-  function resizeModalCanvas(canvas) {
-    const parent = canvas.parentElement;
-    const w = parent.clientWidth;
-    const h = parent.clientHeight;
-    
-    const ratio = Math.max(window.devicePixelRatio || 1, 3);
-    canvas.width = w * ratio; 
-    canvas.height = h * ratio;
-    canvas.getContext("2d").scale(ratio, ratio);
-  }
-
-  function closeSigModal() { 
-      document.getElementById('sig-modal').style.display = 'none'; 
-      window.removeEventListener('resize', handleModalResize);
-      if (document.fullscreenElement) {
-          try { document.exitFullscreen().catch(err => console.log(err)); } catch(e){}
-      }
-  }
-
-  function clearModalPad() { if (modalPad) { modalPad.clear(); isModalEmpty = true; } }
-
-  function hasSignature(id) { return document.getElementById('hint-' + id).style.display === 'none'; }
-
-  function saveSigModal() {
-    const tid = currentTargetId;
-    if (modalPad && tid) {
-       const data = modalPad.toData();
-       if (!data || data.length === 0) {
-           closeSigModal();
-           return;
-       }
-       
-       vectorStore[tid] = data; 
-       const canvas = document.getElementById(tid); 
-       const ctx = canvas.getContext('2d');
-       const ratio = Math.max(window.devicePixelRatio || 1, 3); 
-       pads[tid].clear(); 
-       
-       const mc = document.getElementById('modal-canvas');
-       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-       data.forEach(stroke => {
-           stroke.points.forEach(p => {
-               if (p.x < minX) minX = p.x;
-               if (p.y < minY) minY = p.y;
-               if (p.x > maxX) maxX = p.x;
-               if (p.y > maxY) maxY = p.y;
-           });
-       });
-       
-       const cropPad = 10;
-       const logicalMcW = mc.width / ratio;
-       const logicalMcH = mc.height / ratio;
-       
-       minX = Math.max(0, minX - cropPad);
-       minY = Math.max(0, minY - cropPad);
-       maxX = Math.min(logicalMcW, maxX + cropPad);
-       maxY = Math.min(logicalMcH, maxY + cropPad);
-       
-       const srcW = Math.max(1, maxX - minX);
-       const srcH = Math.max(1, maxY - minY);
-       const targetPad = 4;
-       const targetLogicalW = canvas.width / ratio;
-       const targetLogicalH = canvas.height / ratio;
-       
-       const destW = targetLogicalW - (targetPad * 2);
-       const destH = targetLogicalH - (targetPad * 2);
-       const scale = Math.min(destW / srcW, destH / srcH);
-       const drawW = srcW * scale;
-       const drawH = srcH * scale;
-       const drawX = targetPad + (destW - drawW) / 2;
-       const drawY = targetPad + (destH - drawH) / 2;
-       
-       ctx.drawImage(
-           mc, 
-           minX * ratio, minY * ratio, srcW * ratio, srcH * ratio, 
-           drawX, drawY, drawW, drawH 
-       );
-       
-       document.getElementById('hint-'+tid).style.display = 'none';
-       
-       if (tid === 'sig-security') document.getElementById('secTime').value = new Date().toTimeString().slice(0,5);
-       if (['sig-vendor', 'sig-returned-received', 'sig-returned-hod'].includes(tid)) {
-          const dateMap = {'sig-vendor':'vendorDate','sig-returned-received':'returnedDate','sig-returned-hod':'returnedHodDate'};
-          const dEl = document.getElementById(dateMap[tid]); if(!dEl.value) dEl.valueAsDate = new Date();
-       }
-    }
-    closeSigModal();
-  }
-
-  function openQRModal() {
-    let url = customBaseUrl;
-    
-    if (!url) {
-        url = gasScriptUrl;
-        if (!url || url.includes("scriptUrl")) {
-            url = window.location.href.split('?')[0];
-        }
-    }
-    
-    // FIX: Remove existing params to prevent double '?'
-    const cleanUrl = url.split('?')[0];
-    const separator = '?'; 
-    
-    const container = document.getElementById('qr-container');
-    container.innerHTML = "";
-    
-    const createQR = (targetUrl, label, desc) => {
-        const wrapper = document.createElement('div');
-        wrapper.style.display = "flex";
-        wrapper.style.flexDirection = "column";
-        wrapper.style.alignItems = "center";
-        wrapper.style.margin = "10px";
-        
-        const qrDiv = document.createElement('div');
-        const uniqueId = 'qr-' + Math.random().toString(36).substr(2, 9);
-        qrDiv.id = uniqueId;
-        qrDiv.style.marginBottom = "10px";
-        
-        const title = document.createElement('div');
-        title.style.fontWeight = "bold";
-        title.innerText = label;
-        
-        const subtitle = document.createElement('div');
-        subtitle.style.fontSize = "10px";
-        subtitle.style.color = "#999";
-        subtitle.innerText = desc;
-        wrapper.appendChild(qrDiv);
-        wrapper.appendChild(title);
-        wrapper.appendChild(subtitle);
-        container.appendChild(wrapper);
-        new QRCode(document.getElementById(uniqueId), { text: targetUrl, width: 128, height: 128 });
-    };
-
-    createQR(cleanUrl + separator + 'action=new', "Property Gatepass", "Submit new forms");
-
-    if (isAdminMode) {
-        createQR(cleanUrl + separator + 'user=true', "User Dashboard", "Restricted dashboard view");
-        createQR(cleanUrl + separator + 'admin=true', "Admin Dashboard", "Full access & settings");
-    } else if (isUserMode) {
-        createQR(cleanUrl + separator + 'user=true', "Dashboard", "View your records");
-    }
-    
-    document.getElementById('qr-modal').style.display = 'flex';
-  }
-
-  function closeQRModal() {
-    document.getElementById('qr-modal').style.display = 'none';
-  }
-
-  async function getNextId() {
-    const counterRef = db.collection("config").doc("counter");
-    try {
-        return await db.runTransaction(async (transaction) => {
-            const doc = await transaction.get(counterRef);
-            let newCount = 1;
-            if (doc.exists) {
-                newCount = (doc.data().count || 0) + 1;
-            }
-            transaction.set(counterRef, { count: newCount }, { merge: true });
-            return "PG-" + String(newCount).padStart(4, '0');
-        });
-    } catch (e) {
-        console.error("ID Generation Error:", e);
-        return "PG-" + Date.now().toString().slice(-4);
-    }
-  }
-
-  function dataURLToBlob(dataURL) {
-      const parts = dataURL.split(',');
-      const base64 = parts[1];
-      const binaryStr = window.atob(base64);
-      const len = binaryStr.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
-          bytes[i] = binaryStr.charCodeAt(i);
-      }
-      return firebase.firestore.Blob.fromUint8Array(bytes);
-  }
-
-  function firestoreBlobToString(blob) {
-      const b64 = blob.toBase64();
-      let mime = 'image/webp'; 
-      if (b64.startsWith('iVBORw0KGgo')) {
-          mime = 'image/png';
-      } 
-      else if (b64.startsWith('/9j/')) {
-          mime = 'image/jpeg';
-      }
-      return `data:${mime};base64,${b64}`;
-  }
-
-  function getOptimizedSignature(id) {
-      if (!hasSignature(id)) return "";
-      const srcCanvas = document.getElementById(id);
-      const ratio = Math.max(window.devicePixelRatio || 1, 3);
-      const targetWidth = srcCanvas.width / ratio;
-      const targetHeight = srcCanvas.height / ratio;
-      
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = targetWidth;
-      tempCanvas.height = targetHeight;
-      const ctx = tempCanvas.getContext('2d');
-      ctx.drawImage(srcCanvas, 0, 0, targetWidth, targetHeight);
-      
-      let dataUrl = tempCanvas.toDataURL('image/webp', 0.6);
-      if (dataUrl.indexOf('data:image/webp') !== 0) {
-          dataUrl = tempCanvas.toDataURL('image/png');
-      }
-      return dataUrl;
-  }
-
-  async function submitGatePass() {
-    if (!auth.currentUser) {
-        showToast("Waiting for authentication...");
-        try { await auth.signInAnonymously(); } catch(e) { console.error(e); }
-        if (!auth.currentUser) {
-             alert("Network Error: Could not authenticate with database. Please check your connection and refresh.");
-             return;
-        }
-    }
-    const btn = document.querySelector('.submit-btn'); 
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...'; 
-    btn.disabled = true;
-    
-    try {
-        const id = currentDocId || await getNextId();
-        
-        if (!currentSecurityToken) {
-            currentSecurityToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        function cancelEdit() {
+            document.getElementById('view-editor').classList.add('hidden');
+            if(fabricCanvas) { try { fabricCanvas.dispose(); } catch(e){} fabricCanvas = null; }
+            if(currentJobId) openJobDetails(currentJobId); 
         }
 
-        let purpose = "";
-        if (document.getElementById('purp-transfer').checked) purpose = "Transfer";
-        else if (document.getElementById('chk-repair').checked) purpose = "Repair";
-        else if (document.getElementById('chk-sample').checked) purpose = "Sample";
-        else if (document.getElementById('purp-others').checked) purpose = "Others";
-        
-        let logistic = "";
-        if (document.getElementById('log-car').checked) logistic = "Car/Lorry";
-        else if (document.getElementById('log-moto').checked) logistic = "Motorcycle";
-        else if (document.getElementById('log-person').checked) logistic = "In-person";
-        
-        const meta = {
-          docId: id, 
-          securityToken: currentSecurityToken, 
-          timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-          status: (document.getElementById('chk-repair').checked || document.getElementById('chk-sample').checked) ? (document.getElementById('chk-returned').checked ? "Returned" : "Open") : "-",
-          name: document.getElementById('name').value, empNo: document.getElementById('empNo').value,
-          department: document.getElementById('department').value, position: document.getElementById('position').value,
-          logistic: logistic, vehicleNo: document.getElementById('vehicleNo').value,
-          location: document.getElementById('location').value, entryDate: document.getElementById('entryDate').value,
-          purpose: purpose, purposeOthers: document.getElementById('purposeOthers').value,
-          purposeRepair: document.getElementById('chk-repair').checked, itemReturned: document.getElementById('chk-returned').checked,
-          hodName: document.getElementById('hodName').value, secName: document.getElementById('secName').value, secTime: document.getElementById('secTime').value,
-          vendorName: document.getElementById('vendorName').value, vendorIC: document.getElementById('vendorIC').value, vendorDate: document.getElementById('vendorDate').value,
-          vendorCompany: document.getElementById('vendorCompany').value, vendorRemarks1: document.getElementById('vendorRemarks1').value, vendorRemarks2: document.getElementById('vendorRemarks2').value,
-          returnedName: document.getElementById('returnedName').value, returnedDate: document.getElementById('returnedDate').value, returnedHodName: document.getElementById('returnedHodName').value,
-          returnedHodDate: document.getElementById('returnedHodDate').value, returnedRemarks: document.getElementById('returnedRemarks').value, 
-          items: []
-        };
-        document.querySelectorAll('#itemTable tbody tr').forEach(r => { if(r.cells[1].children[0].value) meta.items.push({ description: r.cells[1].children[0].value, condition: r.cells[2].children[0].value, quantity: r.cells[3].children[0].value }); });
-        
-        const sigs = {};
-        const rawSigs = {
-          sigRequested: getOptimizedSignature('sig-requested'),
-          sigHod: getOptimizedSignature('sig-hod'),
-          sigSecurity: getOptimizedSignature('sig-security'),
-          sigVendor: getOptimizedSignature('sig-vendor'),
-          sigReturnedReceived: getOptimizedSignature('sig-returned-received'),
-          sigReturnedHod: getOptimizedSignature('sig-returned-hod')
-        };
-        
-        for (const [key, val] of Object.entries(rawSigs)) {
-            sigs[key] = val ? dataURLToBlob(val) : null;
+        async function handlePasteClick() {
+            try {
+                const items = await navigator.clipboard.read();
+                for (const item of items) {
+                    if (item.types.includes('image/png') || item.types.includes('image/jpeg')) {
+                        const blob = await item.getType(item.types.find(t => t.startsWith('image/')));
+                        const reader = new FileReader();
+                        reader.onload = (e) => { closeAddMenu(); openEditor(e.target.result); };
+                        reader.readAsDataURL(blob);
+                        return;
+                    }
+                }
+                alert("No image found in clipboard.");
+            } catch (err) { console.warn(err); alert("Use Ctrl+V to paste."); }
         }
-        const blobAttachments = attachedImages.map(imgStr => dataURLToBlob(imgStr));
-        const attachmentsData = {
-            attachment: blobAttachments
-        };
-        
-        await db.collection("gatepasses").doc(id).set(meta, {merge:true});
-        
-        const heavyUploadPromise = Promise.all([
-            db.collection("gatepasses_signatures").doc(id).set(sigs, {merge:true}),
-            db.collection("gatepasses_attachments").doc(id).set(attachmentsData, {merge:true})
-        ]);
-        
-        // FIX: Ensure URL is clean before appending params (Strip existing query strings)
-        let finalUrl = window.location.href.split('?')[0]; 
-        if (window.location.hostname.includes("google") && gasScriptUrl && gasScriptUrl.startsWith("http")) { 
-            finalUrl = gasScriptUrl.split('?')[0]; // Strip existing params from base too
+
+        function setupPasteListener() {
+            document.addEventListener('paste', function(e) {
+                if (!currentJobId) return;
+                const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+                let blob = null;
+                for (let i = 0; i < items.length; i++) {
+                    if (items[i].type.indexOf("image") === 0) { blob = items[i].getAsFile(); break; }
+                }
+                if (blob !== null) {
+                    e.preventDefault();
+                    const reader = new FileReader();
+                    reader.onload = function(event) { 
+                        closeAddMenu(); closeScanner(); openEditor(event.target.result); 
+                    };
+                    reader.readAsDataURL(blob);
+                } else {
+                    if (items.length > 0 && items[0].kind === 'file') {
+                         alert("⚠️ Only Images are allowed. Please convert PDF/Doc to image first.");
+                    }
+                }
+            });
         }
-        
-        const fullUrl = finalUrl + '?docId=' + id + '&token=' + currentSecurityToken;
-        
-        document.getElementById('success-id').innerText = id; 
-        const qrDiv = document.getElementById('qrcode');
-        qrDiv.innerHTML = ""; 
-        new QRCode(qrDiv, { text: fullUrl, width: 128, height: 128 });
-        
-        // --- NEW: Inject Copy Link Button for QR content ---
-        let copyQrBtn = document.getElementById('btn-copy-qr-content');
-        if (!copyQrBtn) {
-            copyQrBtn = document.createElement('button');
-            copyQrBtn.id = 'btn-copy-qr-content';
-            copyQrBtn.className = 'modal-btn'; 
-            copyQrBtn.style.cssText = "background-color: #607D8B; color: white; margin-top: 10px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;";
-            copyQrBtn.innerHTML = '<i class="fas fa-link"></i> Copy Link';
+
+        function openEditor(imageInput) {
+            document.getElementById('view-editor').classList.remove('hidden');
+            const container = document.getElementById('view-editor').querySelector('.flex-1');
+            const canvasWrapper = document.getElementById('canvas-wrapper');
+            const maxWidth = container.clientWidth - 40; const maxHeight = container.clientHeight - 40;
             
-            // Insert after #qrcode
-            qrDiv.parentNode.insertBefore(copyQrBtn, qrDiv.nextSibling);
+            // DOM RESET - CRITICAL FIX
+            if (fabricCanvas) { try { fabricCanvas.dispose(); } catch (e) {} fabricCanvas = null; }
+            canvasWrapper.innerHTML = '<canvas id="fabric-canvas"></canvas>';
+            
+            fabricCanvas = new fabric.Canvas('fabric-canvas');
+            currentFilterIndex = 0; document.getElementById('filter-label').textContent = 'Original';
+            let dataUrl = (typeof imageInput === 'string') ? imageInput : imageInput.toDataURL();
+            
+            fabric.Image.fromURL(dataUrl, function(img) {
+                const scale = Math.min(maxWidth / img.width, maxHeight / img.height);
+                fabricCanvas.setWidth(img.width * scale); fabricCanvas.setHeight(img.height * scale);
+                img.set({ originX: 'center', originY: 'center', left: fabricCanvas.width / 2, top: fabricCanvas.height / 2, scaleX: scale, scaleY: scale, selectable: false, evented: false });
+                fabricCanvas.add(img); fabricCanvas.backgroundImage = img; fabricCanvas.renderAll();
+            });
         }
-        // Update click handler for current url
-        copyQrBtn.onclick = function() { copyToClipboard(fullUrl); };
-        // ---------------------------------------------------
-        
-        currentDocId = id; 
-        document.getElementById('btn-copy-link-header').style.display = 'inline-block';
-        document.getElementById('btn-show-qr-header').style.display = 'inline-block';
-        
-        const closeBtn = document.getElementById('btn-success-close');
-        if (!isAdminMode && !isUserMode) {
-            closeBtn.style.display = 'none';
-        } else {
-            closeBtn.style.display = 'block';
+        function rotateDoc(direction) {
+            if (!fabricCanvas || !fabricCanvas.backgroundImage) return;
+            const img = fabricCanvas.backgroundImage;
+            const angle = (direction === 'left' ? -90 : 90);
+            img.rotate((img.angle || 0) + angle % 360);
+            const container = document.getElementById('view-editor').querySelector('.flex-1');
+            const maxWidth = container.clientWidth - 40; const maxHeight = container.clientHeight - 40;
+            const isVertical = img.angle % 180 !== 0;
+            const effectiveW = isVertical ? img.height : img.width;
+            const effectiveH = isVertical ? img.width : img.height;
+            const scale = Math.min(maxWidth / effectiveW, maxHeight / effectiveH);
+            fabricCanvas.setWidth(effectiveW * scale); fabricCanvas.setHeight(effectiveH * scale);
+            img.set({ left: fabricCanvas.width / 2, top: fabricCanvas.height / 2, scaleX: scale, scaleY: scale });
+            img.setCoords(); fabricCanvas.renderAll();
         }
-        document.getElementById('success-modal').style.display = 'flex'; 
-        btn.innerHTML = '<i class="fas fa-paper-plane"></i> Submit Gate Pass'; 
-        btn.disabled = false;
+        function cycleFilter() {
+            if(!fabricCanvas || !fabricCanvas.backgroundImage) return;
+            const img = fabricCanvas.backgroundImage;
+            const filterModes = ['Original', 'Grayscale', 'Enhanced'];
+            currentFilterIndex = (currentFilterIndex + 1) % filterModes.length;
+            const mode = filterModes[currentFilterIndex];
+            document.getElementById('filter-label').textContent = mode;
+            img.filters = [];
+            if (mode === 'Grayscale') { img.filters.push(new fabric.Image.filters.Grayscale()); } 
+            else if (mode === 'Enhanced') {
+                img.filters.push(new fabric.Image.filters.Grayscale());
+                img.filters.push(new fabric.Image.filters.Contrast({ contrast: 0.25 }));
+                img.filters.push(new fabric.Image.filters.Brightness({ brightness: 0.05 }));
+            }
+            img.applyFilters(); fabricCanvas.renderAll();
+        }
         
-        const statusText = document.getElementById('upload-status-text');
-        const spinner = document.getElementById('upload-spinner');
-        const container = document.getElementById('upload-status-container');
+        function openAddMenu() { document.getElementById('add-menu-modal').classList.remove('hidden'); document.getElementById('add-menu-modal').classList.add('flex'); }
+        function closeAddMenu() { document.getElementById('add-menu-modal').classList.add('hidden'); document.getElementById('add-menu-modal').classList.remove('flex'); }
+        function openScannerFromMenu() { closeAddMenu(); openScanner(); }
+        function triggerDocUploadFromMenu() { closeAddMenu(); triggerDocUpload(); }
         
-        container.style.display = 'block';
-        statusText.innerText = "Syncing images/signatures in background...";
-        statusText.style.color = "#666";
-        spinner.style.display = "inline-block";
-        heavyUploadPromise.then(() => {
-            statusText.innerText = "All data synced successfully!";
-            statusText.style.color = "green";
-            spinner.style.display = "none";
-        }).catch(err => {
-            console.error("Background upload error", err);
-            statusText.innerText = "Image sync paused (Network). Will retry automatically.";
-            statusText.style.color = "orange";
-            spinner.style.display = "none";
-        });
-        
-    } catch(e) { 
-        console.error(e); 
-        btn.innerHTML = 'Error: ' + (e.message || 'Unknown');
-        setTimeout(() => { btn.innerHTML = '<i class="fas fa-paper-plane"></i> Submit Gate Pass'; btn.disabled = false; }, 3000);
-        showToast("Error: " + e.message);
-    }
-  }
+        function triggerDocUpload() { document.getElementById('doc-upload-input').click(); }
+        function handleDocUpload(input) {
+            if (input.files && input.files[0]) {
+                const file = input.files[0];
+                if (!file.type.startsWith('image/')) { alert("⚠️ Restricted Format\n\nOnly Image files (JPG, PNG) are allowed."); input.value = ''; return; }
+                const reader = new FileReader();
+                reader.onload = function(e) { closeScanner(); openEditor(e.target.result); }
+                reader.readAsDataURL(file);
+            }
+            input.value = ''; 
+        }
 
-  function toggleItemDetails(e, element) { e.stopPropagation(); const details = element.nextElementSibling; const icon = element.querySelector('i'); if (details.style.display === "none") { details.style.display = "block"; icon.classList.replace('fa-chevron-down', 'fa-chevron-up'); } else { details.style.display = "none"; icon.classList.replace('fa-chevron-up', 'fa-chevron-down'); } }
+        // --- SAVE/OCR ---
+        function openSaveModal() {
+            document.getElementById('save-modal').classList.remove('hidden');
+            document.getElementById('ocr-loading').classList.add('hidden');
+            document.getElementById('btn-cancel-save').classList.remove('hidden');
+            document.getElementById('btn-confirm-save').classList.remove('hidden');
+        }
+        function closeSaveModal() { document.getElementById('save-modal').classList.add('hidden'); }
 
-  function openCurrentDocLink() {
-      if (!currentDocId) return;
-      let url = customBaseUrl || gasScriptUrl;
-      // Fix: strip query params
-      if (!url || url.includes("scriptUrl")) {
-         url = window.location.href.split('?')[0];
-      } else {
-         url = url.split('?')[0];
-      }
-      
-      let fullUrl = url + '?docId=' + currentDocId;
-      if (currentSecurityToken) {
-          fullUrl += '&token=' + currentSecurityToken;
-      }
-      
-      window.open(fullUrl, '_blank');
-  }
+        function parseSmartMetadata(text) {
+            const result = { id: null, date: null, amount: null };
+            const idMatch = text.match(/(?:no\.|id|#|ref|invoice|order|number)[\s.:]*([a-z0-9\-\/]{3,})/i);
+            if (idMatch) result.id = idMatch[1].toUpperCase();
+            const dateMatch = text.match(/(\d{1,2}[-/\.]\d{1,2}[-/\.]\d{2,4})/);
+            if (dateMatch) result.date = dateMatch[1];
+            const amountMatch = text.match(/(?:total|amount|grand total|balance)[\s.:$rm]*([\d,]+\.\d{2})/i);
+            if (amountMatch) result.amount = amountMatch[1];
+            return result;
+        }
 
-  function showCurrentDocQR() {
-      if (!currentDocId) return;
-      
-      let url = customBaseUrl || gasScriptUrl;
-      if (!url || url.includes("scriptUrl")) {
-         url = window.location.href.split('?')[0];
-      } else {
-         url = url.split('?')[0];
-      }
-      
-      let fullUrl = url + '?docId=' + currentDocId;
-      if (currentSecurityToken) {
-          fullUrl += '&token=' + currentSecurityToken;
-      }
-      
-      const container = document.getElementById('qr-container');
-      container.innerHTML = ""; 
-      
-      const wrapper = document.createElement('div');
-      wrapper.style.display = "flex";
-      wrapper.style.flexDirection = "column";
-      wrapper.style.alignItems = "center";
-      wrapper.style.margin = "10px";
-      
-      const qrDiv = document.createElement('div');
-      const uniqueId = 'qr-doc-' + currentDocId;
-      qrDiv.id = uniqueId;
-      qrDiv.style.marginBottom = "10px";
-      
-      const title = document.createElement('div');
-      title.style.fontWeight = "bold";
-      title.innerText = "Gate Pass: " + currentDocId;
-      
-      const subtitle = document.createElement('div');
-      subtitle.style.fontSize = "10px";
-      subtitle.style.color = "#999";
-      subtitle.innerText = "Scan to view this specific document";
-      wrapper.appendChild(qrDiv);
-      wrapper.appendChild(title);
-      wrapper.appendChild(subtitle);
-      container.appendChild(wrapper);
-      new QRCode(document.getElementById(uniqueId), { text: fullUrl, width: 128, height: 128 });
-      
-      document.getElementById('qr-modal').style.display = 'flex';
-  }
+        async function confirmSave() {
+            const categorySelect = document.getElementById('doc-type-select');
+            const category = categorySelect.value;
+            
+            document.getElementById('ocr-loading').classList.remove('hidden');
+            document.getElementById('btn-cancel-save').classList.add('hidden');
+            document.getElementById('btn-confirm-save').classList.add('hidden');
 
-  function copyCurrentDocLink() {
-      if (!currentDocId) return;
-      let url = customBaseUrl || gasScriptUrl;
-      // Fix: strip query params
-      if (!url || url.includes("scriptUrl")) {
-         url = window.location.href.split('?')[0];
-      } else {
-         url = url.split('?')[0];
-      }
-      
-      let fullUrl = url + '?docId=' + currentDocId;
-      if (currentSecurityToken) {
-          fullUrl += '&token=' + currentSecurityToken;
-      }
-      copyToClipboard(fullUrl);
-  }
+            const multiplier = 1 / (fabricCanvas.backgroundImage ? fabricCanvas.backgroundImage.scaleX : 1);
+            const dataURL = fabricCanvas.toDataURL({ format: 'webp', quality: 0.8, multiplier: multiplier });
+            
+            try {
+                const { data: { text } } = await Tesseract.recognize(dataURL, 'eng');
+                const cleanedText = text.replace(/\n/g, " ").trim();
+                const smartData = parseSmartMetadata(cleanedText);
 
-  function copyToClipboard(text) {
-      const el = document.createElement('textarea'); 
-      el.value = text; 
-      document.body.appendChild(el); 
-      el.select();
-      document.execCommand('copy'); 
-      document.body.removeChild(el); 
-      showToast("Link copied to clipboard!"); 
-  }
+                let finalDocName = `Scan_${Date.now().toString().slice(-4)}.webp`;
+                if (smartData.id) {
+                    const safeId = smartData.id.replace(/[^a-z0-9\-]/gi, '_');
+                    finalDocName = `${category}_${safeId}.webp`;
+                } else {
+                    finalDocName = `${category}_${Date.now().toString().slice(-4)}.webp`;
+                }
 
-</script>
+                const blob = await (await fetch(dataURL)).blob();
+                const arrayBuffer = await blob.arrayBuffer();
+                const uint8Array = new Uint8Array(arrayBuffer);
+                const firestoreBlob = firebase.firestore.Blob.fromUint8Array(uint8Array);
+
+                const sizeMb = (blob.size / (1024*1024)).toFixed(2);
+                const sizeStr = sizeMb < 1 ? (blob.size/1024).toFixed(0) + 'KB' : sizeMb + 'MB';
+
+                const newDoc = {
+                    id: 'new_' + Date.now(), 
+                    name: finalDocName,
+                    docCategory: category,
+                    type: 'scan',
+                    size: sizeStr,
+                    date: 'Just Now',
+                    ocrText: cleanedText,
+                    smartData: smartData 
+                };
+
+                if (db) {
+                     const cloudDocMetadata = { ...newDoc };
+                     delete cloudDocMetadata.src; 
+                     cloudDocMetadata.hasBinary = true; 
+                     
+                     db.collection('jobs').doc(currentJobId).update({
+                         documents: firebase.firestore.FieldValue.arrayUnion(cloudDocMetadata)
+                     });
+
+                     const scanData = { 
+                         image_blob: firestoreBlob, 
+                         timestamp: Date.now(), 
+                         name: finalDocName 
+                     };
+                     
+                     db.collection('jobs').doc(currentJobId).collection('scans').doc(newDoc.id).set(scanData)
+                       .catch(e => console.error("Error saving binary:", e));
+                } else {
+                    const job = jobs.find(j => j.id === currentJobId);
+                    newDoc.src = dataURL;
+                    job.documents.push(newDoc);
+                    renderJobs(); 
+                }
+
+                closeSaveModal(); cancelEdit(); 
+
+                const job = jobs.find(j => j.id === currentJobId);
+                const newStatus = getJobStatus(job);
+                if (category === 'Purchase Order' && newStatus === 'Completed') {
+                    alert("Purchase Order Detected! Job marked as Completed.");
+                }
+
+            } catch (err) {
+                console.error("OCR/Save Error", err);
+                alert("Error parsing document. Please try again.");
+                closeSaveModal();
+            }
+        }
+
+        // --- INIT CALL ---
+        window.onload = () => {
+            lucide.createIcons();
+            initFirebase(); 
+            setupPasteListener();
+            setTimeout(() => { if(typeof jscanify !== 'undefined') scanner = new jscanify(); }, 1000);
+        };
+    </script>
 </body>
 </html>
