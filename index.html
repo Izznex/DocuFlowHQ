@@ -1112,6 +1112,27 @@
                 btn.disabled = false;
             }
         }
+
+                // --- INIT CALL ---
+        window.onload = () => {
+            // Wait for Lucide script to parse
+            const initUI = setInterval(() => {
+                if(typeof lucide !== 'undefined') {
+                    lucide.createIcons();
+                    initFirebase(); 
+                    setupPasteListener();
+                    clearInterval(initUI);
+                }
+            }, 100);
+
+            // Lazy Load Heavy Libs
+            const initHeavyLibs = setInterval(() => {
+                if(typeof jscanify !== 'undefined') {
+                    scanner = new jscanify();
+                    clearInterval(initHeavyLibs);
+                }
+            }, 500);
+        };
         
     </script>
 </body>
