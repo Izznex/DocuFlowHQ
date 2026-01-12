@@ -250,9 +250,23 @@
                 </button>
                 
                 <div class="h-8 w-px bg-gray-700 mx-1"></div>
+
+                <div id="stamp-options-menu" class="hidden absolute bottom-24 left-1/2 -translate-x-1/2 bg-gray-800 border border-gray-700 rounded-xl shadow-xl p-2 flex flex-col gap-2 w-48 z-50">
+                    <button onclick="triggerStampInput(); toggleStampMenu()" class="flex items-center gap-3 px-4 py-3 text-sm text-gray-200 hover:bg-gray-700 rounded-lg transition-colors text-left">
+                        <i data-lucide="image-plus" class="w-4 h-4 text-blue-400"></i>
+                        <span>Upload Image</span>
+                    </button>
+                    <button onclick="handlePasteButton(); toggleStampMenu()" class="flex items-center gap-3 px-4 py-3 text-sm text-gray-200 hover:bg-gray-700 rounded-lg transition-colors text-left">
+                        <i data-lucide="clipboard-paste" class="w-4 h-4 text-emerald-400"></i>
+                        <span>Paste (Ctrl+V)</span>
+                    </button>
+                    <div class="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-gray-800 border-r border-b border-gray-700 rotate-45"></div>
+                </div>
                 
-                <button onclick="triggerStampInput()" class="flex flex-col items-center gap-1.5 group w-14">
-                    <div class="w-10 h-10 rounded-full bg-blue-900/30 border border-blue-500/50 flex items-center justify-center group-active:scale-90 transition-all text-blue-400"><i data-lucide="stamp" class="w-5 h-5"></i></div>
+                <button onclick="toggleStampMenu()" class="relative flex flex-col items-center gap-1.5 group w-14">
+                    <div class="w-10 h-10 rounded-full bg-blue-900/30 border border-blue-500/50 flex items-center justify-center group-active:scale-90 transition-all text-blue-400">
+                        <i data-lucide="stamp" class="w-5 h-5"></i>
+                    </div>
                     <span class="text-[10px] text-blue-400 font-medium">Stamp</span>
                 </button>
 
@@ -902,6 +916,44 @@
             }
             input.value = ''; 
         }
+        
+        function toggleStampMenu() {
+            const menu = document.getElementById('stamp-options-menu');
+            menu.classList.toggle('hidden');
+        }
+
+        // Close menu if clicking elsewhere
+        document.addEventListener('click', function(e) {
+            const menu = document.getElementById('stamp-options-menu');
+            const btn = e.target.closest('button[onclick="toggleStampMenu()"]');
+            const insideMenu = e.target.closest('#stamp-options-menu');
+            
+            if (!btn && !insideMenu && !menu.classList.contains('hidden')) {
+                menu.classList.add('hidden');
+            }
+        });
+
+        async function handlePasteButton() {
+            try {
+                // Try to read clipboard data programmatically
+                const clipboardItems = await navigator.clipboard.read();
+                for (const item of clipboardItems) {
+                    if (item.types.some(type => type.startsWith('image/'))) {
+                        const blob = await item.getType(item.types.find(type => type.startsWith('image/')));
+                        const reader = new FileReader();
+                        reader.onload = (e) => addStampImageToCanvas(e.target.result);
+                        reader.readAsDataURL(blob);
+                        return;
+                    }
+                }
+                alert("No image found in clipboard.");
+            } catch (err) {
+                // Fallback if browser blocks clipboard access
+                console.warn("Clipboard access denied or not supported:", err);
+                alert("Please press Ctrl+V (or Cmd+V) on your keyboard to paste.");
+            }
+        }
+        
         function removeWhiteBackground(imgObj) {
             const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d');
             canvas.width = imgObj.width; canvas.height = imgObj.height; ctx.drawImage(imgObj, 0, 0);
@@ -1445,6 +1497,7 @@
     </script>
 </body>
 </html>
+
 
 
 
