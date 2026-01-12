@@ -198,22 +198,29 @@
         <div id="editor-toolbar" class="bg-gray-900 border-t border-gray-700 pb-safe-area">
             <input type="file" id="stamp-input" accept="image/*" class="hidden" onchange="processStampUpload(this)">
             <div class="h-24 flex items-center justify-around px-4">
-                <button onclick="rotateDoc('left')" class="flex flex-col items-center gap-1.5 group w-16">
+                <button onclick="rotateDoc('left')" class="flex flex-col items-center gap-1.5 group w-14">
                     <div class="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center group-active:scale-90 transition-all text-gray-300 group-hover:text-white group-hover:border-gray-500"><i data-lucide="rotate-ccw" class="w-5 h-5"></i></div>
-                    <span class="text-[10px] text-gray-400 group-hover:text-gray-300 font-medium">Left</span>
+                    <span class="text-[10px] text-gray-400 font-medium">Left</span>
                 </button>
-                <button onclick="cycleFilter()" class="flex flex-col items-center gap-1.5 group w-16">
-                    <div class="w-12 h-12 rounded-full bg-indigo-600/20 border border-indigo-500/50 flex items-center justify-center group-active:scale-90 transition-all shadow-[0_0_15px_rgba(79,70,229,0.2)]"><i data-lucide="wand-2" class="w-6 h-6 text-indigo-400"></i></div>
+                <button onclick="cycleFilter()" class="flex flex-col items-center gap-1.5 group w-14">
+                    <div class="w-10 h-10 rounded-full bg-indigo-600/20 border border-indigo-500/50 flex items-center justify-center group-active:scale-90 transition-all shadow-[0_0_15px_rgba(79,70,229,0.2)]"><i data-lucide="wand-2" class="w-5 h-5 text-indigo-400"></i></div>
                     <span id="filter-label" class="text-[10px] text-indigo-300 font-medium">Original</span>
                 </button>
-                <button onclick="rotateDoc('right')" class="flex flex-col items-center gap-1.5 group w-16">
+                <button onclick="rotateDoc('right')" class="flex flex-col items-center gap-1.5 group w-14">
                     <div class="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center group-active:scale-90 transition-all text-gray-300 group-hover:text-white group-hover:border-gray-500"><i data-lucide="rotate-cw" class="w-5 h-5"></i></div>
-                    <span class="text-[10px] text-gray-400 group-hover:text-gray-300 font-medium">Right</span>
+                    <span class="text-[10px] text-gray-400 font-medium">Right</span>
                 </button>
-                <div class="h-8 w-px bg-gray-700 mx-2"></div>
-                <button onclick="triggerStampInput()" class="flex flex-col items-center gap-1.5 group w-16">
+                
+                <div class="h-8 w-px bg-gray-700 mx-1"></div>
+                
+                <button onclick="triggerStampInput()" class="flex flex-col items-center gap-1.5 group w-14">
                     <div class="w-10 h-10 rounded-full bg-blue-900/30 border border-blue-500/50 flex items-center justify-center group-active:scale-90 transition-all text-blue-400"><i data-lucide="stamp" class="w-5 h-5"></i></div>
                     <span class="text-[10px] text-blue-400 font-medium">Stamp</span>
+                </button>
+
+                <button onclick="addTextToCanvas()" class="flex flex-col items-center gap-1.5 group w-14">
+                    <div class="w-10 h-10 rounded-full bg-red-900/30 border border-red-500/50 flex items-center justify-center group-active:scale-90 transition-all text-red-400"><i data-lucide="type" class="w-5 h-5"></i></div>
+                    <span class="text-[10px] text-red-400 font-medium">Text</span>
                 </button>
             </div>
         </div>
@@ -765,6 +772,32 @@
                 fabricCanvas.add(img); fabricCanvas.setActiveObject(img);
             });
         }
+
+        function addTextToCanvas() {
+            if (!fabricCanvas) return;
+            
+            // Create a text object
+            // 'IText' allows the user to double-click and edit the text on canvas
+            const text = new fabric.IText('Tap to Edit', {
+                left: fabricCanvas.width / 2,
+                top: fabricCanvas.height / 2,
+                fontFamily: 'sans-serif',
+                fill: '#ef4444', // Bright red so it stands out
+                fontSize: 24,
+                fontWeight: 'bold',
+                originX: 'center',
+                originY: 'center',
+                cornerColor: 'red',
+                cornerStyle: 'circle',
+                borderColor: 'red',
+                transparentCorners: false
+            });
+
+            fabricCanvas.add(text);
+            fabricCanvas.setActiveObject(text); // Select it immediately
+            fabricCanvas.renderAll();
+        }
+        
         function cancelEdit() {
             document.getElementById('view-editor').classList.add('hidden');
             if(fabricCanvas) { try { fabricCanvas.dispose(); } catch(e){} fabricCanvas = null; }
@@ -1242,6 +1275,7 @@
     </script>
 </body>
 </html>
+
 
 
 
