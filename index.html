@@ -227,8 +227,15 @@
     <div id="view-editor" class="fixed inset-0 bg-gray-900 z-[70] hidden flex flex-col">
         <div class="h-16 flex items-center justify-between px-4 border-b border-gray-700 bg-gray-900/95 backdrop-blur shrink-0 z-10">
             <button onclick="cancelEdit()" class="text-gray-400 hover:text-white px-2">Cancel</button>
-            <h3 class="font-semibold text-gray-200">Edit Scan</h3>
-            <button id="editor-save-btn" onclick="openSaveModal()" class="text-emerald-400 font-bold px-2">Save</button>
+            <div class="flex items-center gap-2">
+                <button onclick="handleAddPage()" class="flex items-center gap-1 bg-gray-800 hover:bg-gray-700 text-blue-400 px-3 py-1.5 rounded-lg border border-blue-500/30 text-xs font-bold active:scale-95 transition-all">
+                    <i data-lucide="plus-square" class="w-4 h-4"></i>
+                    <span>Page</span>
+                </button>
+                <button id="editor-save-btn" onclick="openSaveModal()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-lg shadow-emerald-900/20 active:scale-95 transition-all">
+                    Save
+                </button>
+            </div>
         </div>
         <div class="flex-1 bg-gray-800 relative overflow-hidden flex items-center justify-center p-6 bg-[radial-gradient(#374151_1px,transparent_1px)] [background-size:16px_16px]">
             <div id="canvas-wrapper" class="shadow-2xl border border-gray-600/50"><canvas id="fabric-canvas"></canvas></div>
@@ -409,6 +416,7 @@
         let editingDocId = null;
         let pendingDownloadDocId = null; // Track doc waiting for download
         let viewingDocId = null; // Track doc currently in lightbox
+        let batchQueue = []; // Stores images for multi-page documents
 
         // --- 2. HELPERS (Must be first) ---
         function parseSizeToBytes(sizeStr) {
@@ -882,6 +890,35 @@
             return null;
         }
 
+        function handleAddPage() {
+            if (!fabricCanvas) return;
+
+            // 1. Get current image
+            const multiplier = 2; // Better quality for storage
+            const dataURL = fabricCanvas.toDataURL({ format: 'webp', quality: 0.9, multiplier: multiplier });
+
+            // 2. Add to Queue
+            batchQueue.push(dataURL);
+
+            // 3. Feedback
+            const btn = event.currentTarget;
+            const originalText = btn.innerHTML;
+            btn.innerHTML = `<span class='text-green-400'>Added!</span>`;
+            
+            setTimeout(() => {
+                // 4. Reset for next page
+                btn.innerHTML = originalText;
+                document.getElementById('view-editor').classList.add('hidden');
+                
+                // Open Add Menu directly so user can choose Camera/Upload/Paste again
+                openAddMenu();
+                
+                // Optional: Update Add Menu title to show page count
+                const title = document.querySelector('#add-menu-modal h3');
+                if(title) title.textContent = `Add Page ${batchQueue.length + 1}`;
+            }, 400);
+        }
+
         function openScanner() {
             editingDocId = null;
             document.getElementById('view-scanner').classList.remove('hidden');
@@ -1119,6 +1156,10 @@
         function cancelEdit() {
             document.getElementById('view-editor').classList.add('hidden');
             if(fabricCanvas) { try { fabricCanvas.dispose(); } catch(e){} fabricCanvas = null; }
+            batchQueue = []; 
+            const title = document.querySelector('#add-menu-modal h3');
+            if(title) title.textContent = 'Add Document';
+
             if(currentJobId) openJobDetails(currentJobId); 
         }
 
@@ -1263,117 +1304,143 @@
             const category = categorySelect.value;
             const isSigned = document.getElementById('doc-signed-check').checked;
             
-            // UI Feedback (Simple text change instead of heavy loader)
+            // UI Feedback
             const saveBtn = document.getElementById('btn-confirm-save');
             const originalBtnText = saveBtn.innerHTML;
             saveBtn.innerHTML = 'Saving...';
             saveBtn.disabled = true;
 
-            // === 1. IMAGE OPTIMIZATION ===
-            const MAX_DIMENSION = 2500; 
-            let finalMultiplier = 1;
-            if (fabricCanvas.backgroundImage) {
-                const canvasW = fabricCanvas.width;
-                const canvasH = fabricCanvas.height;
-                const longestSide = Math.max(canvasW, canvasH);
-                finalMultiplier = MAX_DIMENSION / longestSide;
-            }
-            
-            // Fast export
-            const dataURL = fabricCanvas.toDataURL({ format: 'webp', quality: 0.92, multiplier: finalMultiplier });
-
             try {
-                // REMOVED: Tesseract OCR & Smart Analysis
-                
-                // 2. Generate Simple Name (Category + Short Random ID)
-                // e.g. "Purchase Order_A7X2"
-                let finalDocId, finalDocName;
-                const shortId = Math.random().toString(36).substr(2, 4).toUpperCase();
+                // 1. Add the CURRENT canvas image to the queue as the last page
+                const finalMultiplier = 2; 
+                const currentDataURL = fabricCanvas.toDataURL({ format: 'webp', quality: 0.92, multiplier: finalMultiplier });
+                batchQueue.push(currentDataURL);
 
-                if (editingDocId) {
-                    finalDocId = editingDocId;
-                    // Keep existing name if editing, or update if you prefer
-                    const job = jobs.find(j => j.id === currentJobId);
-                    const existingDoc = job.documents.find(d => d.id === editingDocId);
-                    finalDocName = existingDoc ? existingDoc.name : `${category}_${shortId}.webp`;
-                } else {
-                    finalDocId = 'new_' + Date.now();
-                    finalDocName = `${category}_${shortId}.webp`;
-                }
+                // 2. Process the Batch
+                const totalPages = batchQueue.length;
+                const baseId = Math.random().toString(36).substr(2, 4).toUpperCase(); // Shared ID part
 
-                const blob = await (await fetch(dataURL)).blob();
-                const arrayBuffer = await blob.arrayBuffer();
-                const uint8Array = new Uint8Array(arrayBuffer);
-                const firestoreBlob = firebase.firestore.Blob.fromUint8Array(uint8Array);
-                const sizeMb = (blob.size / (1024*1024)).toFixed(2);
-                const sizeStr = sizeMb < 1 ? (blob.size/1024).toFixed(0) + 'KB' : sizeMb + 'MB';
-
-                // 3. Create Metadata (No smartData anymore)
-                const newDoc = {
-                    id: finalDocId, 
-                    name: finalDocName,
-                    docCategory: category,
-                    type: 'scan',
-                    size: sizeStr,
-                    date: editingDocId ? 'Updated Now' : 'Just Now',
-                    ocrText: "", // Empty since we removed OCR
-                    smartData: {}, 
-                    isSigned: isSigned
-                };
-
-                // 4. Save to DB (Standard Logic)
-                if (db) {
-                     const cloudDocMetadata = { ...newDoc };
-                     delete cloudDocMetadata.src; 
-                     cloudDocMetadata.hasBinary = true; 
-                     
-                     if (editingDocId) {
-                        const scanData = { image_blob: firestoreBlob, timestamp: Date.now(), name: finalDocName };
-                        await db.collection('jobs').doc(currentJobId).collection('scans').doc(finalDocId).set(scanData);
-
-                        const jobRef = db.collection('jobs').doc(currentJobId);
-                        const jobSnap = await jobRef.get();
-                        let currentDocs = jobSnap.data().documents;
-                        const idx = currentDocs.findIndex(d => d.id === editingDocId);
-                        if (idx !== -1) {
-                            currentDocs[idx] = cloudDocMetadata; 
-                            await jobRef.update({ documents: currentDocs });
-                        }
-                     } else {
-                        await db.collection('jobs').doc(currentJobId).update({
-                            documents: firebase.firestore.FieldValue.arrayUnion(cloudDocMetadata)
-                        });
-                        const scanData = { image_blob: firestoreBlob, timestamp: Date.now(), name: finalDocName };
-                        await db.collection('jobs').doc(currentJobId).collection('scans').doc(finalDocId).set(scanData);
-                     }
-                } else {
-                    const job = jobs.find(j => j.id === currentJobId);
-                    newDoc.src = dataURL;
-                    if (editingDocId) {
-                        const idx = job.documents.findIndex(d => d.id === editingDocId);
-                        if (idx !== -1) job.documents[idx] = newDoc;
-                    } else {
-                        job.documents.push(newDoc);
+                for (let i = 0; i < totalPages; i++) {
+                    const dataUrl = batchQueue[i];
+                    
+                    // Naming logic: If multiple pages, append "Page X"
+                    let pageSuffix = "";
+                    if (totalPages > 1) {
+                        pageSuffix = ` (Page ${i + 1})`;
                     }
-                    renderJobs(); 
+
+                    // Call helper
+                    await saveSingleDocument(dataUrl, category, isSigned, baseId, pageSuffix);
                 }
 
-                closeSaveModal(); cancelEdit(); 
+                // 3. Cleanup & Close
+                batchQueue = []; // Clear queue
+                
+                // Reset Add Menu Title
+                const title = document.querySelector('#add-menu-modal h3');
+                if(title) title.textContent = 'Add Document';
+
+                closeSaveModal(); 
+                cancelEdit(); 
                 editingDocId = null;
                 document.getElementById('doc-signed-check').checked = false;
 
+                // Success Message
+                if (totalPages > 1) {
+                    alert(`✅ Saved ${totalPages} pages successfully.`);
+                }
+
+                // Check Completion
                 const job = jobs.find(j => j.id === currentJobId);
                 const newStatus = getJobStatus(job);
                 if (newStatus === 'Completed') {
-                     setTimeout(() => alert("🎉 Job Completed! DO is signed."), 200);
+                    setTimeout(() => alert("🎉 Job Completed! DO is signed."), 200);
                 }
 
             } catch (err) {
                 console.error("Save Error", err);
                 alert("Error saving document.");
             } finally {
-                saveBtn.innerHTML = originalContent;
+                saveBtn.innerHTML = originalBtnText;
                 saveBtn.disabled = false;
+            }
+        }
+
+        // --- NEW HELPER FUNCTION TO SAVE INDIVIDUAL DOCS ---
+        async function saveSingleDocument(dataURL, category, isSigned, baseId, nameSuffix) {
+            let finalDocId, finalDocName;
+
+            // Handle Editing vs New
+            if (editingDocId && batchQueue.length === 1) {
+                // Single doc edit mode
+                finalDocId = editingDocId;
+                const job = jobs.find(j => j.id === currentJobId);
+                const existingDoc = job.documents.find(d => d.id === editingDocId);
+                finalDocName = existingDoc ? existingDoc.name : `${category}_${baseId}.webp`;
+            } else {
+                // New or Batch
+                finalDocId = 'doc_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+                // Clean name construction
+                finalDocName = `${category}_${baseId}${nameSuffix}.webp`;
+            }
+
+            // Prepare Blob
+            const blob = await (await fetch(dataURL)).blob();
+            const arrayBuffer = await blob.arrayBuffer();
+            const uint8Array = new Uint8Array(arrayBuffer);
+            const firestoreBlob = firebase.firestore.Blob.fromUint8Array(uint8Array);
+            const sizeMb = (blob.size / (1024*1024)).toFixed(2);
+            const sizeStr = sizeMb < 1 ? (blob.size/1024).toFixed(0) + 'KB' : sizeMb + 'MB';
+
+            // Create Metadata
+            const newDoc = {
+                id: finalDocId, 
+                name: finalDocName,
+                docCategory: category,
+                type: 'scan',
+                size: sizeStr,
+                date: 'Just Now',
+                ocrText: "", 
+                smartData: {}, 
+                isSigned: isSigned
+            };
+
+            // Database Operations
+            if (db) {
+                const cloudDocMetadata = { ...newDoc };
+                delete cloudDocMetadata.src; 
+                cloudDocMetadata.hasBinary = true; 
+                
+                // 1. Upload Binary
+                const scanData = { image_blob: firestoreBlob, timestamp: Date.now(), name: finalDocName };
+                await db.collection('jobs').doc(currentJobId).collection('scans').doc(finalDocId).set(scanData);
+
+                // 2. Update Job Index
+                if (editingDocId && batchQueue.length === 1) {
+                    const jobRef = db.collection('jobs').doc(currentJobId);
+                    const jobSnap = await jobRef.get();
+                    let currentDocs = jobSnap.data().documents;
+                    const idx = currentDocs.findIndex(d => d.id === editingDocId);
+                    if (idx !== -1) {
+                        currentDocs[idx] = cloudDocMetadata; 
+                        await jobRef.update({ documents: currentDocs });
+                    }
+                } else {
+                    await db.collection('jobs').doc(currentJobId).update({
+                        documents: firebase.firestore.FieldValue.arrayUnion(cloudDocMetadata)
+                    });
+                }
+            } else {
+                // Offline Mode
+                const job = jobs.find(j => j.id === currentJobId);
+                newDoc.src = dataURL;
+                if (editingDocId && batchQueue.length === 1) {
+                    const idx = job.documents.findIndex(d => d.id === editingDocId);
+                    if (idx !== -1) job.documents[idx] = newDoc;
+                } else {
+                    job.documents.push(newDoc);
+                }
+                renderJobs(); 
             }
         }
         
@@ -1637,6 +1704,7 @@
     </script>
 </body>
 </html>
+
 
 
 
