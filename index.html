@@ -20,6 +20,12 @@
         }
     </script>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        // Set the worker source immediately
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script
+
     <style>
         /* Hardware Acceleration for smoother animations */
         .hardware-accel { transform: translate3d(0,0,0); backface-visibility: hidden; }
@@ -53,7 +59,7 @@
 </head>
 <body class="bg-gray-900 text-white h-screen w-screen overflow-hidden font-sans antialiased selection:bg-emerald-500/30">
 
-    <input type="file" id="doc-upload-input" accept="image/*" class="hidden" onchange="handleDocUpload(this)">
+    <input type="file" id="doc-upload-input" accept="image/*,application/pdf" class="hidden" onchange="handleDocUpload(this)">
 
     <header class="fixed top-0 w-full z-50 bg-gray-900/90 backdrop-blur border-b border-gray-800 p-4 flex justify-between items-center h-16 hardware-accel">
         <div class="flex items-center gap-2">
@@ -417,6 +423,7 @@
         let pendingDownloadDocId = null; // Track doc waiting for download
         let viewingDocId = null; // Track doc currently in lightbox
         let batchQueue = []; // Stores images for multi-page documents
+        let isPdfBatch = false; // Track if we are processing a multi-page PDF
 
         // --- 2. HELPERS (Must be first) ---
         function parseSizeToBytes(sizeStr) {
@@ -481,6 +488,59 @@
                 }
             });
             return html;
+        }
+
+        async function processPdfFile(file) {
+            // UI Feedback
+            const loader = document.createElement('div');
+            loader.className = 'fixed inset-0 z-[100] bg-black/80 flex items-center justify-center flex-col text-emerald-400 font-bold';
+            loader.innerHTML = '<div class="loader mb-4"></div>Processing PDF Pages...';
+            document.body.appendChild(loader);
+
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+                
+                // Clear existing queue
+                batchQueue = [];
+                isPdfBatch = true; // Set flag so save logic knows order
+
+                // Loop through all pages
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const scale = 2.0; // High res for good quality
+                    const viewport = page.getViewport({ scale: scale });
+                    
+                    // Render to off-screen canvas
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+
+                    await page.render({ canvasContext: context, viewport: viewport }).promise;
+                    
+                    const imgData = canvas.toDataURL('image/webp', 0.9);
+
+                    if (i === 1) {
+                        // Page 1 goes immediately to the Editor
+                        closeScanner();
+                        openEditor(imgData);
+                    } else {
+                        // Pages 2+ go to the queue waiting to be saved
+                        batchQueue.push(imgData);
+                    }
+                }
+                
+                // Feedback
+                const title = document.querySelector('#add-menu-modal h3');
+                if(title) title.textContent = `PDF: ${pdf.numPages} Pages Loaded`;
+
+            } catch (e) {
+                console.error("PDF Error:", e);
+                alert("Could not read PDF file.");
+            } finally {
+                document.body.removeChild(loader);
+            }
         }
         // --- 3. CORE UI FUNCTIONS ---
        function updateStorageUI() {
@@ -697,9 +757,27 @@
             };
 
             const sortedDocs = [...job.documents].sort((a, b) => {
+                // 1. Primary Sort: Category Weight
                 const weightA = sortWeights[a.docCategory] || 99;
                 const weightB = sortWeights[b.docCategory] || 99;
-                if (weightA !== weightB) return weightA - weightB;
+                
+                if (weightA !== weightB) {
+                    return weightA - weightB;
+                }
+                
+                // 2. Secondary Sort: Handle Multi-page Bundles
+                // We strip the "(Page X)" suffix to see if they are the same base document
+                const getBaseName = (name) => name.replace(/\s*\(Page\s+\d+\).*/i, '');
+                const baseA = getBaseName(a.name);
+                const baseB = getBaseName(b.name);
+
+                if (baseA === baseB) {
+                    // IF SAME DOCUMENT: Sort Ascending by Name (Page 1 -> Page 2 -> Page 3)
+                    // { numeric: true } ensures "Page 10" comes after "Page 2", not before.
+                    return a.name.localeCompare(b.name, undefined, { numeric: true });
+                }
+
+                // 3. Tertiary Sort: Different Documents -> Newest First (Descending ID)
                 return b.id.localeCompare(a.id); 
             });
 
@@ -951,7 +1029,23 @@
             editingDocId = null;
             if (input.files && input.files[0]) {
                 const file = input.files[0];
-                if (!file.type.startsWith('image/')) { alert("⚠️ Restricted Format\n\nOnly Image files (JPG, PNG) are allowed."); input.value = ''; return; }
+                
+                // CHECK FOR PDF
+                if (file.type === 'application/pdf') {
+                    processPdfFile(file);
+                    input.value = '';
+                    return;
+                }
+
+                // Standard Image Logic
+                if (!file.type.startsWith('image/')) { 
+                    alert("⚠️ Restricted Format\n\nOnly Images and PDFs are allowed."); 
+                    input.value = ''; 
+                    return; 
+                }
+                
+                // Normal Image Upload
+                isPdfBatch = false; // Reset flag
                 const reader = new FileReader();
                 reader.onload = function(e) { closeScanner(); openEditor(e.target.result); }
                 reader.readAsDataURL(file);
@@ -1157,6 +1251,7 @@
             document.getElementById('view-editor').classList.add('hidden');
             if(fabricCanvas) { try { fabricCanvas.dispose(); } catch(e){} fabricCanvas = null; }
             batchQueue = []; 
+            isPdfBatch = false;
             const title = document.querySelector('#add-menu-modal h3');
             if(title) title.textContent = 'Add Document';
 
@@ -1311,29 +1406,40 @@
             saveBtn.disabled = true;
 
             try {
-                // 1. Add the CURRENT canvas image to the queue as the last page
+                // 1. Get Current Image from Canvas
                 const finalMultiplier = 2; 
                 const currentDataURL = fabricCanvas.toDataURL({ format: 'webp', quality: 0.92, multiplier: finalMultiplier });
-                batchQueue.push(currentDataURL);
-
-                // 2. Process the Batch
-                const totalPages = batchQueue.length;
-                const baseId = Math.random().toString(36).substr(2, 4).toUpperCase(); // Shared ID part
+                
+                // === LOGIC CHANGE FOR PDF VS SCAN ===
+                let finalSaveList = [];
+                
+                if (isPdfBatch) {
+                    // PDF Mode: Canvas is Page 1, Queue is Pages 2,3,4...
+                    // Order: [Current, ...Queue]
+                    finalSaveList = [currentDataURL, ...batchQueue];
+                } else {
+                    // Scan Mode: Queue is Page 1,2, Canvas is Page 3
+                    // Order: [...Queue, Current]
+                    finalSaveList = [...batchQueue, currentDataURL];
+                }
+                
+                // 2. Process the List
+                const totalPages = finalSaveList.length;
+                const baseId = Math.random().toString(36).substr(2, 4).toUpperCase();
 
                 for (let i = 0; i < totalPages; i++) {
-                    const dataUrl = batchQueue[i];
+                    const dataUrl = finalSaveList[i];
                     
-                    // Naming logic: If multiple pages, append "Page X"
                     let pageSuffix = "";
                     if (totalPages > 1) {
                         pageSuffix = ` (Page ${i + 1})`;
                     }
 
-                    // Call helper
                     await saveSingleDocument(dataUrl, category, isSigned, baseId, pageSuffix);
                 }
 
                 // 3. Cleanup & Close
+                isPdfBatch = false;
                 batchQueue = []; // Clear queue
                 
                 // Reset Add Menu Title
@@ -1704,6 +1810,7 @@
     </script>
 </body>
 </html>
+
 
 
 
