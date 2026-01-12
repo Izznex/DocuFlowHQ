@@ -914,6 +914,129 @@
             renderJobs();
         }
 
+// --- 6. ARCHIVE & EXPORT FUNCTIONS (Add this block) ---
+
+        async function archiveClosedJobs() {
+            // 1. Find completed jobs
+            const jobsToArchive = jobs.filter(j => getJobStatus(j) === 'Completed');
+            if (jobsToArchive.length === 0) return alert("No completed jobs to archive.");
+
+            // 2. Prepare data
+            const archiveData = {
+                version: 1,
+                timestamp: Date.now(),
+                jobs: jobsToArchive
+            };
+
+            // 3. Create file (CBOR is smaller, JSON is fallback)
+            let blob, ext;
+            if (typeof CBOR !== 'undefined') {
+                blob = new Blob([CBOR.encode(archiveData)], { type: 'application/cbor' });
+                ext = 'cbor';
+            } else {
+                blob = new Blob([JSON.stringify(archiveData)], { type: 'application/json' });
+                ext = 'json';
+            }
+
+            // 4. Trigger Download
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `DocuFlow_Archive_${new Date().toISOString().slice(0,10)}.${ext}`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            // 5. Cleanup Database
+            if (confirm(`Successfully downloaded archive of ${jobsToArchive.length} jobs.\n\nDelete them from the active list to free up space?`)) {
+                if(db) {
+                    const batch = db.batch();
+                    jobsToArchive.forEach(job => {
+                        const docRef = db.collection('jobs').doc(job.id);
+                        batch.delete(docRef);
+                    });
+                    await batch.commit().catch(e => console.error(e));
+                }
+                // Update local list instantly
+                jobs = jobs.filter(j => getJobStatus(j) !== 'Completed');
+                renderJobs();
+                updateStorageUI();
+            }
+        }
+
+        function handleArchiveUpload(input) {
+            if (!input.files || !input.files[0]) return;
+            const file = input.files[0];
+            const reader = new FileReader();
+            
+            reader.onload = function(e) {
+                try {
+                    let data;
+                    // Detect format based on extension or try both
+                    if (file.name.endsWith('.json')) {
+                        data = JSON.parse(e.target.result);
+                    } else {
+                        // Assume CBOR
+                        data = CBOR.decode(e.target.result);
+                    }
+                    
+                    if (data && data.jobs) {
+                        isViewingArchive = true;
+                        archivedJobs = data.jobs;
+                        renderJobs();
+                        alert(`Loaded Archive: ${data.jobs.length} jobs.`);
+                    } else {
+                        alert("Invalid archive file.");
+                    }
+                } catch (err) {
+                    console.error(err);
+                    alert("Failed to load archive. Make sure it's a valid .cbor or .json file.");
+                }
+            };
+            
+            if (file.name.endsWith('.json')) {
+                reader.readAsText(file);
+            } else {
+                reader.readAsArrayBuffer(file);
+            }
+            input.value = '';
+        }
+
+        function downloadJobBundle() {
+            if (!currentJobId) return;
+            const sourceList = isViewingArchive ? archivedJobs : jobs;
+            const job = sourceList.find(j => j.id === currentJobId);
+            if (!job || !job.documents.length) return alert("No documents to download.");
+
+            // Use jsPDF
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            let y = 10;
+            doc.setFontSize(16);
+            doc.text(`Job Bundle: ${job.client}`, 10, y);
+            y += 10;
+            doc.setFontSize(10);
+            doc.text(`ID: ${job.id} | Date: ${job.date}`, 10, y);
+            y += 10;
+
+            // Simple text list for now, or add images if needed
+            job.documents.forEach((d, index) => {
+                doc.text(`${index + 1}. ${d.docCategory} - ${d.name}`, 10, y);
+                y += 7;
+                // Note: Adding actual images to PDF requires loading base64 data which is complex
+                // in this simple setup. This acts as a summary sheet.
+            });
+
+            doc.save(`${job.client}_Bundle.pdf`);
+        }
+
+        function downloadSinglePDF(docId) {
+            alert("To download a single PDF, simply use the 'Download Bundle' button for now, or save the image directly.");
+        }
+
+        
         // --- INIT CALL ---
         window.onload = () => {
             // Wait for Lucide script to parse
@@ -937,3 +1060,4 @@
     </script>
 </body>
 </html>
+
