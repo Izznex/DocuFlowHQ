@@ -276,6 +276,18 @@
                 </button>
             </div>
         </div>
+        <div id="stamp-slider-container" class="hidden absolute bottom-36 left-1/2 -translate-x-1/2 w-64 bg-gray-800 p-4 rounded-xl border border-gray-700 shadow-2xl z-[75] flex flex-col gap-2">
+            <div class="flex justify-between items-center text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">
+                <span>Darker</span>
+                <span>Background Removal</span>
+                <span>Lighter</span>
+            </div>
+            <input type="range" id="stamp-threshold" min="1" max="255" value="150" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-emerald-500" oninput="updateStampThreshold(this.value)">
+            <div class="flex justify-between text-[10px] text-gray-500">
+                <span>Keep More</span>
+                <span>Remove More</span>
+            </div>
+        </div>
     </div>
 
     <div id="new-job-modal" class="fixed inset-0 z-[80] hidden flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
@@ -955,100 +967,125 @@
             }
         }
         
-       
         function addStampImageToCanvas(dataUrl) {
             if (!fabricCanvas) return;
+            
             fabric.Image.fromURL(dataUrl, function(img) {
+                // 1. Calculate Scale
                 const targetScale = (fabricCanvas.width * 0.3) / img.width;
-                img.set({ left: fabricCanvas.width / 2 - (img.width * targetScale) / 2, top: fabricCanvas.height / 2 - (img.height * targetScale) / 2, scaleX: targetScale, scaleY: targetScale, cornerColor: 'blue', cornerStyle: 'circle' });
-                fabricCanvas.add(img); fabricCanvas.setActiveObject(img);
+
+                img.set({
+                    left: fabricCanvas.width / 2,
+                    top: fabricCanvas.height / 2,
+                    originX: 'center',
+                    originY: 'center',
+                    scaleX: targetScale,
+                    scaleY: targetScale,
+                    cornerColor: '#10b981', // Emerald 500
+                    cornerStyle: 'circle',
+                    borderColor: '#10b981',
+                    transparentCorners: false,
+                    
+                    // CUSTOM PROPERTIES
+                    isStamp: true,     // Tag it so we know it's a stamp
+                    rawSrc: dataUrl    // IMPORTANT: Keep original for re-processing
+                });
+
+                fabricCanvas.add(img);
+                fabricCanvas.setActiveObject(img);
+                
+                // Trigger initial cleanup with default value (150)
+                updateStampThreshold(150);
             });
         }
 
         function processAndAddStamp(rawImgSrc) {
-            // Show loading feedback
-            document.body.style.cursor = 'wait';
-            const editorHeader = document.querySelector('#view-editor .h-16');
-            const originalHeader = editorHeader.innerHTML;
-            // Show a small temporary loader in header
-            editorHeader.innerHTML = '<div class="w-full h-full flex items-center justify-center text-emerald-400 gap-2"><div class="loader w-4 h-4 border-t-emerald-400"></div>Processing stamp...</div>';
+            // We no longer pre-process here. We pass the raw image to the canvas
+            // and let the slider logic handle the processing. 
+            // This ensures the slider always has the original data to work with.
+            addStampImageToCanvas(rawImgSrc);
+        }
 
+        // --- STAMP SLIDER LOGIC ---
+
+        // 1. Listen for selection events to Show/Hide slider
+        function initFabricListeners() {
+            if(!fabricCanvas) return;
+
+            fabricCanvas.on('selection:created', (e) => checkSelection(e.selected[0]));
+            fabricCanvas.on('selection:updated', (e) => checkSelection(e.selected[0]));
+            fabricCanvas.on('selection:cleared', () => hideStampSlider());
+        }
+
+        function checkSelection(obj) {
+            if (obj && obj.isStamp) {
+                // It is a stamp, show the slider
+                document.getElementById('stamp-slider-container').classList.remove('hidden');
+                // Reset slider to a middle value or the last used value if we stored it
+                // document.getElementById('stamp-threshold').value = 150; 
+            } else {
+                hideStampSlider();
+            }
+        }
+
+        function hideStampSlider() {
+            document.getElementById('stamp-slider-container').classList.add('hidden');
+        }
+
+        // 2. The Slider Function
+        function updateStampThreshold(thresholdVal) {
+            if (!fabricCanvas) return;
+            const activeObj = fabricCanvas.getActiveObject();
+            
+            if (!activeObj || !activeObj.isStamp || !activeObj.rawSrc) return;
+
+            const threshold = parseInt(thresholdVal);
+            const rawSrc = activeObj.rawSrc;
+
+            // Create an off-screen image to process
             const tempImg = new Image();
-            // Must set crossOrigin for external images, though less relevant for paste/upload
-            tempImg.crossOrigin = "Anonymous"; 
+            tempImg.src = rawSrc;
             
             tempImg.onload = function() {
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
-                // Limit processing size for performance if it's a huge screenshot
-                const MAX_PROC_SIZE = 1500; 
-                let width = tempImg.width;
-                let height = tempImg.height;
-                if (width > MAX_PROC_SIZE || height > MAX_PROC_SIZE) {
-                    const ratio = Math.min(MAX_PROC_SIZE / width, MAX_PROC_SIZE / height);
-                    width *= ratio;
-                    height *= ratio;
-                }
-                canvas.width = width;
-                canvas.height = height;
+                canvas.width = tempImg.width;
+                canvas.height = tempImg.height;
+                
+                ctx.drawImage(tempImg, 0, 0);
+                
+                const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const data = imgData.data;
 
-                // 1. Draw original image onto off-screen canvas
-                ctx.drawImage(tempImg, 0, 0, width, height);
-
-                // 2. Get raw pixel data (RGBA array)
-                let imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                let data = imgData.data;
-
-                // 3. Iterate pixels for Smart Background Removal & Cleanup
-                // Threshold: Luminance value above which a pixel is considered "background" (0-255)
-                // 210 is a good balance for screenshots of white paper/screens
-                const whiteThreshold = 210; 
-                // Dark Threshold: Luminance below which we assume it's ink and force to solid black
-                const darkThreshold = 120; 
-
+                // PIXEL MANIPULATION LOOP
                 for (let i = 0; i < data.length; i += 4) {
                     const r = data[i];
                     const g = data[i + 1];
                     const b = data[i + 2];
-                    // Calculate luminance (perceived brightness)
-                    const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+                    
+                    // Simple brightness calculation
+                    const brightness = (r + g + b) / 3;
 
-                    if (luminance > whiteThreshold) {
-                        // Make bright background transparent
-                        data[i + 3] = 0; // Set Alpha to 0
-                    } else if (luminance < darkThreshold) {
-                        // Make dark ink solid black for better clarity
-                        data[i] = 0; // R
-                        data[i + 1] = 0; // G
-                        data[i + 2] = 0; // B
-                        // Keep existing alpha or force full opacity depending on preference. 
-                        // Usually keeping existing alpha looks more natural if the original had feathering.
-                        // data[i + 3] = 255; 
+                    if (brightness > threshold) {
+                        // Background -> Transparent
+                        data[i + 3] = 0; 
+                    } else {
+                        // Ink -> Solid Black (Optional: Remove this else block to keep original ink color)
+                        data[i] = 0; 
+                        data[i+1] = 0; 
+                        data[i+2] = 0;
+                        data[i+3] = 255; 
                     }
-                    // Pixels in between remain as-is (for anti-aliasing edges)
                 }
 
-                // 4. Put processed data back
                 ctx.putImageData(imgData, 0, 0);
-
-                // 5. Export as PNG (required for transparency)
-                const processedImgSrc = canvas.toDataURL('image/png');
-
-                // 6. Add to main canvas
-                addStampImageToCanvas(processedImgSrc);
                 
-                // Reset UI
-                document.body.style.cursor = 'default';
-                editorHeader.innerHTML = originalHeader;
+                // Update the fabric object with the new processed image
+                const newSrc = canvas.toDataURL();
+                activeObj.setSrc(newSrc, function() {
+                    fabricCanvas.renderAll();
+                });
             };
-
-            tempImg.onerror = function() {
-                 alert("Failed to process image.");
-                 document.body.style.cursor = 'default';
-                 editorHeader.innerHTML = originalHeader;
-            };
-
-            tempImg.src = rawImgSrc;
         }
 
         function addTextToCanvas() {
@@ -1158,6 +1195,7 @@
                 fabricCanvas.setWidth(img.width * scale); fabricCanvas.setHeight(img.height * scale);
                 img.set({ originX: 'center', originY: 'center', left: fabricCanvas.width / 2, top: fabricCanvas.height / 2, scaleX: scale, scaleY: scale, selectable: false, evented: false });
                 fabricCanvas.add(img); fabricCanvas.backgroundImage = img; fabricCanvas.renderAll();
+                initFabricListeners();
             });
         }
         function rotateDoc(direction) {
@@ -1596,4 +1634,5 @@
     </script>
 </body>
 </html>
+
 
