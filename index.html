@@ -304,15 +304,33 @@
         </div>
     </div>
 
-    <div id="view-lightbox" class="fixed inset-0 z-[90] hidden bg-black/95 backdrop-blur flex flex-col items-center justify-center p-4 transition-opacity">
-        <button onclick="closeLightbox()" class="absolute top-6 right-6 text-gray-400 hover:text-white p-2">
-            <i data-lucide="x" class="w-8 h-8"></i>
-        </button>
-        <img id="lightbox-img" class="max-w-full max-h-[80vh] object-contain shadow-2xl rounded-lg" src="">
-        <div class="absolute bottom-8 flex gap-4">
-             <button onclick="closeLightbox()" class="px-6 py-3 bg-gray-800 rounded-xl text-white border border-gray-700 font-medium active:scale-95 transition-transform">Close</button>
+    <div id="view-lightbox" class="fixed inset-0 z-[90] hidden bg-black/95 backdrop-blur flex flex-col items-center justify-center transition-opacity">
+        
+        <div class="absolute top-0 left-0 right-0 p-4 pt-6 bg-gradient-to-b from-black/90 to-transparent z-20 flex justify-between items-start pointer-events-none">
+            <div class="flex-1 max-w-md pointer-events-auto">
+                <label class="text-[10px] uppercase text-gray-500 font-bold tracking-wider ml-1">Document Name</label>
+                <div class="flex items-center gap-2">
+                    <input type="text" id="lightbox-filename" 
+                           class="bg-transparent text-white text-lg font-bold border-b border-gray-700 focus:border-emerald-500 focus:bg-gray-900/50 outline-none w-full py-1 transition-colors" 
+                           placeholder="Document Name"
+                           onchange="saveDocumentRename()"> <span class="text-gray-600 text-sm font-mono pt-1 select-none">.webp</span>
+                </div>
+                <p id="rename-feedback" class="text-[10px] text-emerald-500 h-4 opacity-0 transition-opacity font-medium mt-1">Saved!</p>
+            </div>
+            
+            <button onclick="closeLightbox()" class="text-gray-400 hover:text-white p-2 bg-black/20 rounded-full backdrop-blur pointer-events-auto ml-4">
+                <i data-lucide="x" class="w-6 h-6"></i>
+            </button>
+        </div>
+
+        <div class="flex-1 w-full flex items-center justify-center p-4 pt-20 pb-24 overflow-hidden">
+             <img id="lightbox-img" class="max-w-full max-h-full object-contain shadow-2xl rounded-lg" src="">
+        </div>
+
+        <div class="absolute bottom-8 flex gap-4 z-20">
+             <button onclick="closeLightbox()" class="px-6 py-3 bg-gray-800 rounded-xl text-white border border-gray-700 font-medium active:scale-95 transition-transform shadow-lg shadow-black/50">Close</button>
              <button id="lightbox-edit-btn" class="px-6 py-3 bg-emerald-600 rounded-xl text-white font-bold shadow-lg shadow-emerald-500/20 active:scale-95 transition-transform flex items-center gap-2">
-                <i data-lucide="pen-tool" class="w-4 h-4"></i> Edit
+                <i data-lucide="pen-tool" class="w-4 h-4"></i> Edit Image
              </button>
         </div>
     </div>
@@ -355,6 +373,7 @@
         let currentSearchTerm = "";
         let editingDocId = null;
         let pendingDownloadDocId = null; // Track doc waiting for download
+        let viewingDocId = null; // Track doc currently in lightbox
 
         // --- 2. HELPERS (Must be first) ---
         function parseSizeToBytes(sizeStr) {
@@ -711,7 +730,9 @@
             const doc = job.documents.find(d => d.id === docId);
             if(!doc) return;
 
-            // Simple loading cursor feedback
+            viewingDocId = docId; // Store ID for renaming
+
+            // UI Loading State
             document.body.style.cursor = 'wait';
 
             ensureDocImageLoaded(job, doc).then(imgSrc => {
@@ -720,26 +741,79 @@
                     const lightbox = document.getElementById('view-lightbox');
                     const img = document.getElementById('lightbox-img');
                     const editBtn = document.getElementById('lightbox-edit-btn');
+                    const nameInput = document.getElementById('lightbox-filename');
                     
+                    // Setup Image
                     img.src = imgSrc;
-                    // Allow jumping from Viewer -> Editor
+                    
+                    // Setup Name (Strip extension for display)
+                    nameInput.value = doc.name.replace(/\.[^/.]+$/, "");
+                    
+                    // Setup Edit Button
                     editBtn.onclick = (e) => { 
                         e.stopPropagation();
                         closeLightbox(); 
-                        // Simulate a click or call logic directly
                         editingDocId = docId;
                         openEditor(imgSrc); 
                     };
                     
                     lightbox.classList.remove('hidden');
                 } else {
-                    alert("Image not available. It might be loading from cloud.");
+                    alert("Image not available.");
                 }
             });
         }
 
+        async function saveDocumentRename() {
+            if (!viewingDocId || !currentJobId) return;
+
+            const nameInput = document.getElementById('lightbox-filename');
+            const feedback = document.getElementById('rename-feedback');
+            const cleanName = nameInput.value.trim();
+            
+            if (!cleanName) return; // Don't save empty names
+
+            const finalName = cleanName + '.webp';
+
+            // 1. Update Local Data
+            const job = jobs.find(j => j.id === currentJobId);
+            const doc = job.documents.find(d => d.id === viewingDocId);
+            if (doc) {
+                doc.name = finalName;
+                renderDocumentList(job); // Refresh list behind the modal
+            }
+
+            // 2. Show "Saved" feedback
+            feedback.classList.remove('opacity-0');
+            setTimeout(() => feedback.classList.add('opacity-0'), 2000);
+
+            // 3. Update Firebase (Background)
+            if (db) {
+                try {
+                    const jobRef = db.collection('jobs').doc(currentJobId);
+                    const jobSnap = await jobRef.get();
+                    if (jobSnap.exists) {
+                        let currentDocs = jobSnap.data().documents;
+                        const idx = currentDocs.findIndex(d => d.id === viewingDocId);
+                        if (idx !== -1) {
+                            currentDocs[idx].name = finalName;
+                            await jobRef.update({ documents: currentDocs });
+                            
+                            // Optional: Update the actual scan document metadata too
+                            await db.collection('jobs').doc(currentJobId).collection('scans').doc(viewingDocId).update({ name: finalName });
+                        }
+                    }
+                } catch (e) {
+                    console.error("Rename failed:", e);
+                    feedback.textContent = "Error saving";
+                    feedback.classList.add('text-red-500');
+                }
+            }
+        }
+
         function closeLightbox() {
             document.getElementById('view-lightbox').classList.add('hidden');
+            viewingDocId = null;
             setTimeout(() => { document.getElementById('lightbox-img').src = ''; }, 200);
         }
 
@@ -1335,6 +1409,7 @@
     </script>
 </body>
 </html>
+
 
 
 
