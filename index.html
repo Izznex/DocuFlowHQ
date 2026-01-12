@@ -388,7 +388,7 @@
         }
 
         // --- 3. CORE UI FUNCTIONS ---
-        function updateStorageUI() {
+       function updateStorageUI() {
             const totalBytes = calculateTotalUsage();
             const usedMB = (totalBytes / (1024 * 1024)).toFixed(1);
             const percentage = Math.min((usedMB / STORAGE_LIMIT_MB) * 100, 100);
@@ -405,10 +405,16 @@
             }
 
             const alertBox = document.getElementById('archive-alert');
-            const hasCompleted = jobs.some(j => getJobStatus(j) === 'Completed');
+            
+            // --- CHANGE IS HERE ---
+            // Old logic: if(percentage >= 95 || hasCompleted)
+            // New logic: Only show if storage is over 80% full
             if(alertBox) {
-                if(percentage >= 95 || hasCompleted) { alertBox.classList.remove('hidden'); } 
-                else { alertBox.classList.add('hidden'); }
+                if(percentage >= 80) { 
+                    alertBox.classList.remove('hidden'); 
+                } else { 
+                    alertBox.classList.add('hidden'); 
+                }
             }
         }
 
@@ -1060,4 +1066,5 @@
     </script>
 </body>
 </html>
+
 
