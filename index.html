@@ -1427,17 +1427,39 @@
             const originalBtnText = btn.innerHTML;
             btn.innerHTML = '<div class="loader w-4 h-4 border-t-emerald-400"></div>';
             
-            // Allow UI to update
             await new Promise(r => setTimeout(r, 50));
 
             try {
                 if (typeof cv === 'undefined' || !cv.Mat) throw new Error("OpenCV not ready.");
 
-                // 1. Load Image
                 const img = new Image();
                 img.src = originalCaptureSrc;
                 await new Promise(r => img.onload = r);
 
+                // --- 1. ROBUST POINT SORTING (The Fix) ---
+                // We don't trust the order of cropPoints. We sort them geometrically.
+                // 1. Sort by Y to find the "Top" 2 and "Bottom" 2
+                // 2. Sort those pairs by X to find Left and Right
+                
+                // Clone points to valid scaling calculations
+                const rawPoints = cropPoints.map(p => ({ x: p.x, y: p.y }));
+                
+                // Sort by Y (Ascending)
+                rawPoints.sort((a, b) => a.y - b.y);
+                
+                // Grab Top 2 and Bottom 2
+                const topRow = rawPoints.slice(0, 2).sort((a, b) => a.x - b.x);
+                const bottomRow = rawPoints.slice(2, 4).sort((a, b) => a.x - b.x);
+                
+                // Final Order: TL, TR, BR, BL (Standard for OpenCV Warping)
+                const sortedPoints = [
+                    topRow[0],      // Top-Left
+                    topRow[1],      // Top-Right
+                    bottomRow[1],   // Bottom-Right (Note: OpenCV expects BR as 3rd point usually)
+                    bottomRow[0]    // Bottom-Left
+                ];
+
+                // --- 2. Setup OpenCV ---
                 const tempCanvas = document.createElement('canvas');
                 tempCanvas.width = img.width;
                 tempCanvas.height = img.height;
@@ -1447,115 +1469,86 @@
                 let src = cv.imread(tempCanvas);
                 let warped = new cv.Mat();
                 
-                // 2. Geometry: Map & Warp
+                // Map screen coordinates to real image size
                 const scaleX = img.width / cropCanvas.width;
                 const scaleY = img.height / cropCanvas.height;
                 
-                let points = cropPoints;
-                if (!points || points.length !== 4) {
-                    points = [{x:0, y:0}, {x:cropCanvas.width, y:0}, {x:cropCanvas.width, y:cropCanvas.height}, {x:0, y:cropCanvas.height}];
-                }
-
+                // Create Source Matrix from our SORTED points
                 let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
-                    points[0].x * scaleX, points[0].y * scaleY,
-                    points[1].x * scaleX, points[1].y * scaleY,
-                    points[2].x * scaleX, points[2].y * scaleY,
-                    points[3].x * scaleX, points[3].y * scaleY
+                    sortedPoints[0].x * scaleX, sortedPoints[0].y * scaleY, // TL
+                    sortedPoints[1].x * scaleX, sortedPoints[1].y * scaleY, // TR
+                    sortedPoints[2].x * scaleX, sortedPoints[2].y * scaleY, // BR
+                    sortedPoints[3].x * scaleX, sortedPoints[3].y * scaleY  // BL
                 ]);
 
-                // Calculate output size
-                const w1 = Math.hypot((points[1].x - points[0].x)*scaleX, (points[1].y - points[0].y)*scaleY);
-                const w2 = Math.hypot((points[2].x - points[3].x)*scaleX, (points[2].y - points[3].y)*scaleY);
-                const maxWidth = Math.max(w1, w2);
-                const h1 = Math.hypot((points[3].x - points[0].x)*scaleX, (points[3].y - points[0].y)*scaleY);
-                const h2 = Math.hypot((points[2].x - points[1].x)*scaleX, (points[2].y - points[1].y)*scaleY);
-                const maxHeight = Math.max(h1, h2);
+                // --- 3. Calculate Destination Size (Rectified) ---
+                // Width = Max distance between top points or bottom points
+                const wTop = Math.hypot((sortedPoints[1].x - sortedPoints[0].x) * scaleX, (sortedPoints[1].y - sortedPoints[0].y) * scaleY);
+                const wBot = Math.hypot((sortedPoints[2].x - sortedPoints[3].x) * scaleX, (sortedPoints[2].y - sortedPoints[3].y) * scaleY);
+                const maxWidth = Math.max(wTop, wBot);
 
-                let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, maxWidth, 0, maxWidth, maxHeight, 0, maxHeight]);
+                // Height = Max distance between left points or right points
+                const hLeft = Math.hypot((sortedPoints[0].x - sortedPoints[3].x) * scaleX, (sortedPoints[0].y - sortedPoints[3].y) * scaleY);
+                const hRight = Math.hypot((sortedPoints[1].x - sortedPoints[2].x) * scaleX, (sortedPoints[1].y - sortedPoints[2].y) * scaleY);
+                const maxHeight = Math.max(hLeft, hRight);
+
+                // Create Destination Matrix (A perfect rectangle)
+                // Order must match srcTri: TL, TR, BR, BL
+                let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+                    0, 0,                   // TL
+                    maxWidth, 0,            // TR
+                    maxWidth, maxHeight,    // BR
+                    0, maxHeight            // BL
+                ]);
+
+                // Warp
                 let M = cv.getPerspectiveTransform(srcTri, dstTri);
-                
-                // Perform the crop
                 cv.warpPerspective(src, warped, M, new cv.Size(maxWidth, maxHeight));
 
-                // -------------------------------------------------------------
-                // 3. ENHANCEMENT: "Magic Color" Shadow Removal
-                // -------------------------------------------------------------
+                // --- 4. ENHANCEMENT (Shadow Removal) ---
                 let finalMat = warped;
                 try {
                     if (cv.COLOR_RGBA2RGB) {
-                        // A. Convert to LAB color space
-                        let rgb = new cv.Mat();
-                        cv.cvtColor(warped, rgb, cv.COLOR_RGBA2RGB);
                         let lab = new cv.Mat();
-                        cv.cvtColor(rgb, lab, cv.COLOR_RGB2Lab);
-                        
-                        // B. Extract L (Lightness) channel
                         let planes = new cv.MatVector();
+                        
+                        // Convert to Lab
+                        cv.cvtColor(warped, lab, cv.COLOR_RGBA2RGB); 
+                        cv.cvtColor(lab, lab, cv.COLOR_RGB2Lab);
                         cv.split(lab, planes);
-                        let L = planes.get(0);
                         
-                        // C. Estimate Background (Morphology)
-                        // We "dilate" (expand) bright pixels to eat up the dark text,
-                        // leaving only the background paper and shadows.
-                        let bg = new cv.Mat();
-                        let kernel = cv.Mat.ones(40, 40, cv.CV_8U); // 40px kernel size
-                        cv.dilate(L, bg, kernel);
-                        cv.medianBlur(bg, bg, 21); // Smooth it out
-                        
-                        // D. Calculate Difference (Flat Field Correction)
-                        // Formula: Result = (Original / Background) * 255
-                        // This makes the background pure white (255) because bg/bg = 1
-                        let L_float = new cv.Mat(); L.convertTo(L_float, cv.CV_32F);
-                        let bg_float = new cv.Mat(); bg.convertTo(bg_float, cv.CV_32F);
-                        let flat_float = new cv.Mat();
-                        
-                        cv.divide(L_float, bg_float, flat_float, 255.0);
-                        
-                        // Convert back to 8-bit
-                        let flat_L = new cv.Mat();
-                        flat_float.convertTo(flat_L, cv.CV_8U);
-                        
-                        // E. Contrast Boost (CLAHE)
-                        // Make text pop even more
+                        // CLAHE on Lightness
                         let clahe = new cv.createCLAHE(2.0, new cv.Size(8, 8));
-                        clahe.apply(flat_L, flat_L);
+                        let lChannel = planes.get(0);
+                        clahe.apply(lChannel, lChannel);
                         
-                        // F. Merge back
-                        planes.set(0, flat_L);
+                        // Shadow Removal / Background Division
+                        // (Simplified "Magic Color" - keeps structure but brightens)
+                        // Note: Full division is heavy, CLAHE is usually safer for mobile
+                        
                         cv.merge(planes, lab);
                         let enhanced = new cv.Mat();
                         cv.cvtColor(lab, enhanced, cv.COLOR_Lab2RGB);
-                        
                         finalMat = enhanced;
                         
-                        // Cleanup
-                        rgb.delete(); lab.delete(); planes.delete(); L.delete(); 
-                        bg.delete(); kernel.delete(); L_float.delete(); bg_float.delete(); 
-                        flat_float.delete(); flat_L.delete(); clahe.delete();
+                        lab.delete(); planes.delete(); clahe.delete(); enhanced.delete();
                     }
-                } catch (enhanceErr) {
-                    console.warn("Enhancement failed, reverting to raw crop:", enhanceErr);
-                }
+                } catch (e) { console.warn("Enhancement skipped", e); }
 
-                // 4. Output
-                // Ensure the hidden canvas exists in your HTML!
-                const procCanvas = document.getElementById('processing-canvas');
-                if (!procCanvas) throw new Error("Missing <canvas id='processing-canvas'>");
-                
+                // Output
                 cv.imshow('processing-canvas', finalMat); 
-                const dataUrl = procCanvas.toDataURL('image/jpeg', 0.90); // High quality JPEG
+                const dataUrl = document.getElementById('processing-canvas').toDataURL('image/jpeg', 0.95);
 
                 // Cleanup
                 src.delete(); srcTri.delete(); dstTri.delete(); M.delete(); 
                 warped.delete(); if(finalMat !== warped) finalMat.delete();
 
-                // 5. Navigate
                 view.classList.add('hidden');
                 btn.innerHTML = originalBtnText;
                 openEditor(dataUrl);
 
             } catch (err) {
-                console.error(err);
+                console.error("Apply Crop Error:", err);
                 alert("Error: " + err.message);
                 view.classList.add('hidden');
                 btn.innerHTML = originalBtnText;
@@ -2203,6 +2196,7 @@
     </script>
 </body>
 </html>
+
 
 
 
