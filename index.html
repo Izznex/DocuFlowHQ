@@ -125,7 +125,12 @@
                 <i data-lucide="arrow-left"></i>
             </button>
             <div class="flex-1 overflow-hidden">
-                <h2 id="detail-client" class="font-bold text-lg leading-tight text-white truncate">Client Name</h2>
+                <div class="flex items-center gap-2">
+                    <h2 id="detail-client" class="font-bold text-lg leading-tight text-white truncate max-w-[200px]">Client Name</h2>
+                    <button onclick="openRenameJobModal()" class="text-gray-500 hover:text-emerald-400 transition-colors">
+                        <i data-lucide="pencil" class="w-4 h-4"></i>
+                    </button>
+                </div>
                 <div class="flex items-center gap-2">
                     <span id="detail-id" class="text-xs font-mono text-emerald-400">#ID</span>
                     <span id="detail-status" class="text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Status</span>
@@ -134,15 +139,14 @@
             </div>
             
             <div class="flex gap-2">
-                <button onclick="promptDelete(currentJobId, 'job')" class="p-2 text-red-400 hover:text-white bg-red-900/20 rounded-full border border-red-900/50 active:scale-95 transition-transform" title="Delete Entire Job">
+                <button onclick="promptDelete(currentJobId, 'job')" class="p-2 text-red-400 hover:text-white bg-red-900/20 rounded-full border border-red-900/50 active:scale-95 transition-transform" title="Delete Job">
                     <i data-lucide="trash-2" class="w-5 h-5"></i>
                 </button>
-                
-                <button onclick="downloadJobBundle()" class="p-2 text-blue-400 hover:text-white bg-blue-900/20 rounded-full border border-blue-900/50 active:scale-95 transition-transform" title="Download All as PDF">
+                <button onclick="downloadJobBundle()" class="p-2 text-blue-400 hover:text-white bg-blue-900/20 rounded-full border border-blue-900/50 active:scale-95 transition-transform" title="Download PDF">
                     <i data-lucide="file-stack" class="w-5 h-5"></i>
                 </button>
             </div>
-       </div>
+        </div>
         
         <div class="flex-1 overflow-y-auto p-4 space-y-3" id="document-list"></div>
 
@@ -414,6 +418,19 @@
              <button id="lightbox-edit-btn" class="px-6 py-3 bg-emerald-600 rounded-xl text-white font-bold shadow-lg shadow-emerald-500/20 active:scale-95 transition-transform flex items-center gap-2">
                 <i data-lucide="pen-tool" class="w-4 h-4"></i> Edit Image
              </button>
+        </div>
+    </div>
+
+    <div id="rename-job-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+        <div class="bg-gray-800 p-6 rounded-2xl w-full max-w-sm border border-gray-700 shadow-2xl">
+            <h3 class="text-lg font-bold text-white mb-4">Rename Job</h3>
+            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">New Job Title</label>
+            <input type="text" id="rename-job-input" class="w-full bg-gray-900 text-white border border-gray-700 rounded-lg p-3 mb-6 focus:border-emerald-500 outline-none" placeholder="e.g. Project Alpha">
+            
+            <div class="flex gap-3">
+                <button onclick="document.getElementById('rename-job-modal').classList.add('hidden')" class="flex-1 py-3 text-gray-400 font-medium hover:text-white rounded-lg hover:bg-gray-700/50 transition-colors">Cancel</button>
+                <button onclick="confirmJobRename()" class="flex-1 py-3 bg-emerald-500 text-white font-bold rounded-lg shadow-lg shadow-emerald-500/20 active:scale-95 transition-transform">Save</button>
+            </div>
         </div>
     </div>
 
@@ -765,6 +782,53 @@
             closeNewJobModal();
         }
 
+        // --- RENAME JOB LOGIC ---
+        function openRenameJobModal() {
+            if (!currentJobId) return;
+            const job = jobs.find(j => j.id === currentJobId);
+            if (!job) return;
+
+            const modal = document.getElementById('rename-job-modal');
+            const input = document.getElementById('rename-job-input');
+            
+            // Pre-fill current name
+            input.value = job.client;
+            
+            modal.classList.remove('hidden');
+            setTimeout(() => input.focus(), 100);
+        }
+
+        async function confirmJobRename() {
+            if (!currentJobId) return;
+            
+            const input = document.getElementById('rename-job-input');
+            const newName = input.value.trim();
+            if (!newName) return alert("Please enter a valid name.");
+
+            const modal = document.getElementById('rename-job-modal');
+            
+            try {
+                // 1. Update Database
+                if (db) {
+                    await db.collection('jobs').doc(currentJobId).update({ client: newName });
+                }
+
+                // 2. Update Local State
+                const job = jobs.find(j => j.id === currentJobId);
+                if (job) job.client = newName;
+
+                // 3. Update UI
+                document.getElementById('detail-client').textContent = newName;
+                renderJobs(); // Update the main list in background
+
+                modal.classList.add('hidden');
+
+            } catch (e) {
+                console.error("Rename failed", e);
+                alert("Failed to rename job.");
+            }
+        }
+        
         // --- DETAILS ---
         function openJobDetails(id) {
             currentJobId = id;
@@ -2008,6 +2072,7 @@
     </script>
 </body>
 </html>
+
 
 
 
