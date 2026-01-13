@@ -199,13 +199,32 @@
         <div class="relative flex-1 bg-black overflow-hidden flex items-center justify-center">
             <video id="video" class="absolute min-w-full min-h-full object-cover" playsinline autoplay muted></video>
             
-            <canvas id="highlight-canvas" class="absolute top-0 left-0 w-full h-full pointer-events-none"></canvas>
-            
-            <div id="scan-feedback" class="absolute top-10 bg-black/60 px-4 py-2 rounded-full text-sm font-medium backdrop-blur flex items-center gap-2 transition-all">
-                <span>Looking for document...</span>
+            <div class="absolute inset-0 pointer-events-none opacity-30">
+                <div class="absolute top-1/3 left-0 w-full h-px bg-white"></div>
+                <div class="absolute top-2/3 left-0 w-full h-px bg-white"></div>
+                <div class="absolute left-1/3 top-0 w-px h-full bg-white"></div>
+                <div class="absolute left-2/3 top-0 w-px h-full bg-white"></div>
+            </div>
+
+            <div class="absolute top-8 bg-black/50 px-4 py-2 rounded-full text-sm font-medium text-white backdrop-blur">
+                Align document & tap capture
             </div>
         </div>
 
+        <div class="h-32 bg-gray-900 flex items-center justify-around px-8 z-20 border-t border-gray-800 pb-safe-area">
+            <button onclick="closeScanner()" class="p-4 rounded-full bg-gray-800 text-gray-400 hover:text-white transition-colors">
+                <i data-lucide="x"></i>
+            </button>
+            
+            <button onclick="captureDoc()" class="w-20 h-20 rounded-full border-4 border-white flex items-center justify-center bg-transparent active:scale-90 transition-transform hover:bg-white/10">
+                <div class="w-16 h-16 bg-white rounded-full pointer-events-none"></div>
+            </button>
+            
+            <button onclick="triggerDocUpload()" class="p-4 rounded-full bg-gray-800 text-emerald-400 hover:bg-gray-700 transition-colors">
+                <i data-lucide="image"></i>
+            </button>
+        </div>
+    </div>
         <div class="h-32 bg-gray-900 flex items-center justify-around px-8 z-20 border-t border-gray-800">
             <button onclick="closeScanner()" class="p-4 rounded-full bg-gray-800 text-gray-400 hover:text-white transition-colors">
                 <i data-lucide="x"></i>
@@ -1160,160 +1179,73 @@
             }, 400);
         }
 
-        // --- SMART SCANNER ENGINE (OpenCV) ---
+        // --- SIMPLE SCANNER ENGINE ---
         let video = null;
-        let cvReady = false;
-        
-        let src, dst, gray, cap, contours, hierarchy, approx;
-        let detectedContour = null; 
+        let stream = null;
+        // isScanning is declared globally at the top
+        // cvReady is declared globally at the top
 
-        function onOpenCvReady() {
-            cvReady = true;
-            console.log("OpenCV Ready");
-        }
-
-        // If OpenCV is already loaded (cached), trigger immediately
-        if (typeof cv !== 'undefined' && cv.Mat) {
-            onOpenCvReady();
-        } else {
-            // Otherwise wait for the callback
-            var Module = {
-                onRuntimeInitialized: onOpenCvReady
-            };
+        // Wait for OpenCV (Only needed for the CROP/ENHANCE stage later)
+        if(typeof cv !== 'undefined') {
+             cv['onRuntimeInitialized'] = () => { cvReady = true; console.log("OpenCV Loaded"); };
         }
 
         function openScanner() {
-            // Check if cv is defined AND if our ready flag is set
-            if (typeof cv === 'undefined' || !cvReady) {
-                return alert("Scanner engine loading... please wait.");
-            }
-            
             document.getElementById('view-scanner').classList.remove('hidden');
             video = document.getElementById('video');
-            const feedback = document.getElementById('scan-feedback');
-            feedback.classList.remove('hidden'); 
-            feedback.classList.add('flex');
             
-            const canvas = document.getElementById('highlight-canvas');
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
+            // Robust Camera Constraints
+            const constraints = {
+                audio: false,
+                video: {
+                    facingMode: 'environment', // Rear camera
+                    width: { ideal: 1920 },    // Try for HD
+                    height: { ideal: 1080 }
+                }
+            };
 
-            navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } 
-            }).then(s => {
-                stream = s;
-                video.srcObject = stream;
-                video.play();
-                
-                video.onloadedmetadata = () => {
-                    // Reuse or Init Matrices
-                    if(!src) src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-                    if(!dst) dst = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC1);
-                    if(!gray) gray = new cv.Mat();
-                    if(!hierarchy) hierarchy = new cv.Mat();
-                    if(!contours) contours = new cv.MatVector();
-                    if(!approx) approx = new cv.Mat();
-                    
-                    isScanning = true;
-                    requestAnimationFrame(scanLoop);
-                };
-            }).catch(err => {
-                console.error(err);
-                alert("Camera access denied or unavailable.");
-                closeScanner();
-            });
+            navigator.mediaDevices.getUserMedia(constraints)
+                .then(s => {
+                    stream = s;
+                    video.srcObject = stream;
+                    video.onloadedmetadata = () => {
+                        video.play().catch(e => console.error("Play error:", e));
+                    };
+                })
+                .catch(err => {
+                    console.error("Camera Error:", err);
+                    alert("Could not access camera. Please check permissions or use 'Upload Image'.");
+                    closeScanner();
+                });
         }
 
         function closeScanner() {
-            isScanning = false;
-            if (stream) stream.getTracks().forEach(t => t.stop());
+            if (stream) {
+                stream.getTracks().forEach(t => t.stop());
+                stream = null;
+            }
             document.getElementById('view-scanner').classList.add('hidden');
-        }
-
-        function scanLoop() {
-            if (!isScanning) return;
-            
-            try {
-                if (!video.videoWidth) { requestAnimationFrame(scanLoop); return; }
-                
-                let cap = new cv.VideoCapture(video);
-                cap.read(src);
-
-                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-                cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0);
-                cv.Canny(gray, dst, 75, 200);
-
-                cv.findContours(dst, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
-                let maxArea = 0;
-                let bestApprox = null;
-
-                for (let i = 0; i < contours.size(); ++i) {
-                    let cnt = contours.get(i);
-                    let area = cv.contourArea(cnt);
-                    
-                    if (area > 50000) { 
-                        let perimeter = cv.arcLength(cnt, true);
-                        cv.approxPolyDP(cnt, approx, 0.02 * perimeter, true);
-                        
-                        if (approx.rows === 4 && area > maxArea) {
-                            maxArea = area;
-                            bestApprox = approx; 
-                        }
-                    }
-                }
-
-                const canvas = document.getElementById('highlight-canvas');
-                const ctx = canvas.getContext('2d');
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-                if (bestApprox) {
-                    detectedContour = bestApprox.clone(); 
-                    
-                    const scaleX = canvas.width / video.videoWidth;
-                    const scaleY = canvas.height / video.videoHeight;
-                    
-                    ctx.beginPath();
-                    ctx.lineWidth = 4;
-                    ctx.strokeStyle = '#00FF00'; 
-                    
-                    const p0 = bestApprox.data32S;
-                    ctx.moveTo(p0[0] * scaleX, p0[1] * scaleY);
-                    ctx.lineTo(p0[2] * scaleX, p0[3] * scaleY);
-                    ctx.lineTo(p0[4] * scaleX, p0[5] * scaleY);
-                    ctx.lineTo(p0[6] * scaleX, p0[7] * scaleY);
-                    ctx.closePath();
-                    ctx.stroke();
-                    
-                    const fb = document.getElementById('scan-feedback');
-                    fb.innerHTML = "<span>Tap to Capture</span>";
-                    fb.classList.replace('bg-black/60', 'bg-emerald-600/90');
-                } else {
-                    detectedContour = null;
-                    const fb = document.getElementById('scan-feedback');
-                    fb.innerHTML = "<span>Looking for document...</span>";
-                    fb.classList.replace('bg-emerald-600/90', 'bg-black/60');
-                }
-
-            } catch (err) { console.error(err); }
-
-            requestAnimationFrame(scanLoop);
         }
 
         function captureDoc() {
             if (!video || !video.videoWidth) return;
 
-            const fullCanvas = document.createElement('canvas');
-            fullCanvas.width = video.videoWidth;
-            fullCanvas.height = video.videoHeight;
-            const ctx = fullCanvas.getContext('2d');
-            ctx.drawImage(video, 0, 0);
+            // 1. Capture High-Res Frame
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
             
-            const fullImageSrc = fullCanvas.toDataURL('image/jpeg', 1.0); 
-            // Auto-crop logic is placeholder (null) to use manual crop defaults
+            // Draw current video frame to canvas
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // 2. Convert to Image URL
+            const fullImageSrc = canvas.toDataURL('image/jpeg', 0.95); 
+
+            // 3. Send to Cropper (Pass null for corners so it defaults to full box)
+            // The user will drag the corners manually
             openCropView(fullImageSrc, null);
         }
-
         // --- CROPPER STATE ---
         let cropPoints = []; 
         let activePointIndex = -1; 
@@ -2204,5 +2136,6 @@
     </script>
 </body>
 </html>
+
 
 
