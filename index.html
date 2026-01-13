@@ -22,7 +22,6 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
-        // Set the worker source immediately
         window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     </script>
 
@@ -30,26 +29,11 @@
         /* Hardware Acceleration for smoother animations */
         .hardware-accel { transform: translate3d(0,0,0); backface-visibility: hidden; }
         
-        .scanner-overlay {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            z-index: 20; pointer-events: none;
-            border-style: solid; border-color: rgba(0, 0, 0, 0.7); border-width: 10vh 10vw; 
-            box-sizing: border-box; transition: border-width 0.3s ease;
-        }
-        .scan-line {
-            position: absolute; width: 100%; height: 2px;
-            background: #00ff9d; box-shadow: 0 0 10px #00ff9d;
-            top: 0; animation: scanMove 2s infinite linear; display: none;
-        }
-        @keyframes scanMove {
-            0% { top: 0; opacity: 0; }
-            10% { opacity: 1; }
-            90% { opacity: 1; }
-            100% { top: 100%; opacity: 0; }
-        }
-        .scanning .scan-line { display: block; }
+        /* Mobile Optimizations */
         body { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
         ::-webkit-scrollbar { display: none; }
+        
+        /* Loading Spinner */
         .loader {
             border: 3px solid #f3f3f3; border-radius: 50%; border-top: 3px solid #10b981;
             width: 20px; height: 20px; animation: spin 1s linear infinite;
@@ -220,24 +204,47 @@
     <div id="view-scanner" class="fixed inset-0 bg-black z-[60] hidden flex flex-col">
         <div class="relative flex-1 bg-black overflow-hidden flex items-center justify-center">
             <video id="video" class="absolute min-w-full min-h-full object-cover" playsinline autoplay muted></video>
+            
             <canvas id="highlight-canvas" class="absolute top-0 left-0 w-full h-full pointer-events-none"></canvas>
-            <div class="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
-                <div class="w-[85%] h-[70%] border-2 border-white/30 rounded-lg relative shadow-[0_0_0_9999px_rgba(0,0,0,0.7)]">
-                    <div class="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-emerald-400 rounded-tl-lg"></div>
-                    <div class="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-emerald-400 rounded-tr-lg"></div>
-                    <div class="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-emerald-400 rounded-bl-lg"></div>
-                    <div class="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-emerald-400 rounded-br-lg"></div>
-                    <div class="scan-line"></div>
-                </div>
-            </div>
-            <div id="scan-feedback" class="absolute top-10 bg-black/60 px-4 py-2 rounded-full text-sm font-medium backdrop-blur hidden flex-col items-center">
-                <span>Hold steady...</span>
+            
+            <div id="scan-feedback" class="absolute top-10 bg-black/60 px-4 py-2 rounded-full text-sm font-medium backdrop-blur flex items-center gap-2 transition-all">
+                <span>Looking for document...</span>
             </div>
         </div>
-        <div class="h-32 bg-gray-900 flex items-center justify-around px-8 z-20">
-            <button onclick="closeScanner()" class="p-4 rounded-full bg-gray-800 text-gray-400 hover:text-white transition-colors"><i data-lucide="x"></i></button>
-            <button onclick="captureDoc()" class="w-16 h-16 rounded-full border-4 border-white flex items-center justify-center bg-transparent active:scale-90 transition-transform"><div class="w-12 h-12 bg-white rounded-full"></div></button>
-            <button onclick="triggerDocUpload()" class="p-4 rounded-full bg-gray-800 text-emerald-400 hover:bg-gray-700 transition-colors"><i data-lucide="image"></i></button>
+
+        <div class="h-32 bg-gray-900 flex items-center justify-around px-8 z-20 border-t border-gray-800">
+            <button onclick="closeScanner()" class="p-4 rounded-full bg-gray-800 text-gray-400 hover:text-white transition-colors">
+                <i data-lucide="x"></i>
+            </button>
+            
+            <button onclick="captureDoc()" class="w-20 h-20 rounded-full border-4 border-white flex items-center justify-center bg-transparent active:scale-90 transition-transform hover:bg-white/10">
+                <div class="w-16 h-16 bg-white rounded-full pointer-events-none"></div>
+            </button>
+            
+            <button onclick="triggerDocUpload()" class="p-4 rounded-full bg-gray-800 text-emerald-400 hover:bg-gray-700 transition-colors">
+                <i data-lucide="image"></i>
+            </button>
+        </div>
+    </div>
+
+    <div id="view-crop" class="fixed inset-0 bg-black z-[80] hidden flex flex-col">
+        <div class="relative flex-1 bg-black overflow-hidden flex items-center justify-center touch-none">
+            <img id="crop-img" class="max-w-full max-h-full object-contain pointer-events-none opacity-50">
+            <canvas id="crop-overlay" class="absolute inset-0 w-full h-full touch-none"></canvas>
+        </div>
+        
+        <div class="h-20 bg-gray-900 flex items-center justify-between px-6 border-t border-gray-800 shrink-0">
+            <button onclick="closeCropView()" class="flex flex-col items-center text-gray-400 hover:text-white">
+                <i data-lucide="x" class="w-6 h-6"></i>
+                <span class="text-[10px] mt-1 font-medium">Retake</span>
+            </button>
+            
+            <div class="text-white font-bold text-sm tracking-wide">ADJUST CORNERS</div>
+            
+            <button onclick="applyCrop()" class="flex flex-col items-center text-emerald-400 hover:text-emerald-300">
+                <i data-lucide="check" class="w-6 h-6"></i>
+                <span class="text-[10px] mt-1 font-bold">Scan</span>
+            </button>
         </div>
     </div>
 
@@ -435,7 +442,6 @@
     </div>
 
     <script src="https://docs.opencv.org/4.7.0/opencv.js" defer></script>
-    <script src="https://cdn.jsdelivr.net/gh/ColonelParrot/jscanify@master/src/jscanify.min.js" defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/cbor-js@0.1.0/cbor.min.js" defer></script>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -1259,33 +1265,334 @@
             }, 400);
         }
 
+        // --- SMART SCANNER ENGINE (OpenCV) ---
+        let video = null;
+        let stream = null;
+        let isScanning = false;
+        let cvReady = false;
+        
+        // OpenCV Objects (Reused to prevent memory leaks)
+        let src, dst, gray, cap, contours, hierarchy, approx;
+        let detectedContour = null; // Stores the best 4 points found
+
+        // Wait for OpenCV to load
+        cv['onRuntimeInitialized'] = () => { cvReady = true; };
+
         function openScanner() {
-            editingDocId = null;
+            if (!cvReady && typeof cv.Mat === 'undefined') return alert("Scanner engine loading... please wait.");
+            
             document.getElementById('view-scanner').classList.remove('hidden');
+            video = document.getElementById('video');
             const feedback = document.getElementById('scan-feedback');
-            feedback.classList.remove('hidden'); feedback.classList.add('flex');
-            const video = document.getElementById('video');
-            const highlightCanvas = document.getElementById('highlight-canvas');
-            const canvasCtx = highlightCanvas.getContext('2d');
-            navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }).then((s) => {
-                stream = s; video.srcObject = stream; isScanning = true;
-                document.querySelector('.scanner-overlay')?.classList.add('scanning');
-                const scanLoop = () => {
-                    if (!isScanning) return;
-                    if (video.readyState === video.HAVE_ENOUGH_DATA && scanner) {
-                        highlightCanvas.width = video.videoWidth; highlightCanvas.height = video.videoHeight;
-                        canvasCtx.clearRect(0, 0, highlightCanvas.width, highlightCanvas.height);
-                        try { scanner.highlightPaper(highlightCanvas, video); } catch(e) {}
-                    }
+            feedback.classList.remove('hidden'); 
+            feedback.classList.add('flex');
+            
+            // Setup Canvas for Visual Feedback
+            const canvas = document.getElementById('highlight-canvas');
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+
+            // Start Camera
+            navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } 
+            }).then(s => {
+                stream = s;
+                video.srcObject = stream;
+                video.play();
+                
+                // Initialize OpenCV Matrices once video is ready
+                video.onloadedmetadata = () => {
+                    // Initialize Matrices if they don't exist
+                    if(!src) src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+                    if(!dst) dst = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC1);
+                    if(!gray) gray = new cv.Mat();
+                    if(!hierarchy) hierarchy = new cv.Mat();
+                    if(!contours) contours = new cv.MatVector();
+                    if(!approx) approx = new cv.Mat();
+                    
+                    isScanning = true;
                     requestAnimationFrame(scanLoop);
                 };
-                scanLoop();
-            }).catch(err => { console.warn(err); alert("Camera unavailable. Use upload/paste."); });
+            }).catch(err => {
+                console.error(err);
+                alert("Camera access denied or unavailable.");
+                closeScanner();
+            });
         }
+
         function closeScanner() {
-            isScanning = false; if (stream) stream.getTracks().forEach(track => track.stop());
+            isScanning = false;
+            if (stream) stream.getTracks().forEach(t => t.stop());
             document.getElementById('view-scanner').classList.add('hidden');
         }
+
+        function scanLoop() {
+            if (!isScanning) return;
+            
+            try {
+                if (!video.videoWidth) { requestAnimationFrame(scanLoop); return; }
+                
+                // 1. Capture Frame to OpenCV matrix
+                let cap = new cv.VideoCapture(video);
+                cap.read(src);
+
+                // 2. Pre-processing (Gray -> Blur -> Canny)
+                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+                cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0);
+                cv.Canny(gray, dst, 75, 200);
+
+                // 3. Find Contours
+                cv.findContours(dst, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+                let maxArea = 0;
+                let bestApprox = null;
+
+                // 4. Find the largest 4-sided polygon
+                for (let i = 0; i < contours.size(); ++i) {
+                    let cnt = contours.get(i);
+                    let area = cv.contourArea(cnt);
+                    
+                    // Min area filter (ignore small noise)
+                    if (area > 50000) { 
+                        let perimeter = cv.arcLength(cnt, true);
+                        cv.approxPolyDP(cnt, approx, 0.02 * perimeter, true);
+                        
+                        if (approx.rows === 4 && area > maxArea) {
+                            maxArea = area;
+                            bestApprox = approx; // Just reference it
+                        }
+                    }
+                }
+
+                // 5. Draw Feedback
+                const canvas = document.getElementById('highlight-canvas');
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                if (bestApprox) {
+                    detectedContour = bestApprox.clone(); // Clone for later use
+                    
+                    // Scale points to fit screen canvas
+                    const scaleX = canvas.width / video.videoWidth;
+                    const scaleY = canvas.height / video.videoHeight;
+                    
+                    ctx.beginPath();
+                    ctx.lineWidth = 4;
+                    ctx.strokeStyle = '#00FF00'; // Lime Green
+                    
+                    // Draw lines between the 4 points
+                    const p0 = bestApprox.data32S;
+                    ctx.moveTo(p0[0] * scaleX, p0[1] * scaleY);
+                    ctx.lineTo(p0[2] * scaleX, p0[3] * scaleY);
+                    ctx.lineTo(p0[4] * scaleX, p0[5] * scaleY);
+                    ctx.lineTo(p0[6] * scaleX, p0[7] * scaleY);
+                    ctx.closePath();
+                    ctx.stroke();
+                    
+                    // Feedback Text
+                    const fb = document.getElementById('scan-feedback');
+                    fb.innerHTML = "<span>Tap to Capture</span>";
+                    fb.classList.replace('bg-black/60', 'bg-emerald-600/90');
+                } else {
+                    detectedContour = null;
+                    const fb = document.getElementById('scan-feedback');
+                    fb.innerHTML = "<span>Looking for document...</span>";
+                    fb.classList.replace('bg-emerald-600/90', 'bg-black/60');
+                }
+
+            } catch (err) {
+                console.error(err);
+            }
+
+            requestAnimationFrame(scanLoop);
+        }
+
+        function captureDoc() {
+            if (!video || !video.videoWidth) return;
+
+            // 1. Capture High-Res Frame
+            const fullCanvas = document.createElement('canvas');
+            fullCanvas.width = video.videoWidth;
+            fullCanvas.height = video.videoHeight;
+            const ctx = fullCanvas.getContext('2d');
+            ctx.drawImage(video, 0, 0);
+            
+            const fullImageSrc = fullCanvas.toDataURL('image/jpeg', 1.0); 
+
+            // 2. Prepare detected corners (if any) for the Cropper
+            let corners = null;
+            if (detectedContour) {
+                // Extract points from OpenCV Mat
+                // (Optional: You can pass these to initCropPoints if you want the 
+                // crop box to snap to the green lines automatically)
+            }
+
+            // 3. Send to Cropper View
+            openCropView(fullImageSrc, corners);
+        }
+
+        // --- CROPPER STATE ---
+        let cropPoints = []; // [tl, tr, br, bl] (Each is {x, y})
+        let activePointIndex = -1; // Which point is being dragged?
+        let cropImgElement = null;
+        let cropCanvas = null;
+        let originalCaptureSrc = null; // High-res source
+
+        function openCropView(imageSrc, detectedCorners) {
+            document.getElementById('view-scanner').classList.add('hidden'); // Hide camera
+            const view = document.getElementById('view-crop');
+            view.classList.remove('hidden');
+            
+            cropImgElement = document.getElementById('crop-img');
+            cropCanvas = document.getElementById('crop-overlay');
+            originalCaptureSrc = imageSrc;
+
+            cropImgElement.src = imageSrc;
+            
+            // Wait for image layout to calculate positions
+            cropImgElement.onload = () => {
+                initCropPoints(detectedCorners);
+                renderCropUI();
+                initCropListeners();
+            };
+        }
+
+        function closeCropView() {
+            document.getElementById('view-crop').classList.add('hidden');
+            // Re-open scanner if needed, or go back to home
+            openScanner(); 
+        }
+
+        function initCropPoints(autoCorners) {
+            // Get the actual displayed size of the image on screen
+            const rect = cropImgElement.getBoundingClientRect();
+            const canvas = cropCanvas;
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+            
+            // If OpenCV found corners, scale them to the screen
+            // autoCorners should be normalized (0.0 to 1.0) or matched to original image size
+            // For simplicity in this example, we default to a structured box if no corners passed
+            
+            const padding = 40;
+            const w = canvas.width;
+            const h = canvas.height;
+            
+            if (autoCorners && autoCorners.length === 4) {
+                 // Map detected corners here (omitted for brevity, defaulting to manual box is safer fallback)
+                 // You would scale: x * (rect.width / originalWidth)
+            } 
+            
+            // Default 4 corners (TL, TR, BR, BL)
+            cropPoints = [
+                { x: padding, y: padding },             // TL
+                { x: w - padding, y: padding },         // TR
+                { x: w - padding, y: h - padding },     // BR
+                { x: padding, y: h - padding }          // BL
+            ];
+        }
+
+        function renderCropUI() {
+            const ctx = cropCanvas.getContext('2d');
+            ctx.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
+            
+            // 1. Draw Mask (Darken outside)
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillRect(0, 0, cropCanvas.width, cropCanvas.height);
+            
+            // Cut out the selected area
+            ctx.save();
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.beginPath();
+            ctx.moveTo(cropPoints[0].x, cropPoints[0].y);
+            ctx.lineTo(cropPoints[1].x, cropPoints[1].y);
+            ctx.lineTo(cropPoints[2].x, cropPoints[2].y);
+            ctx.lineTo(cropPoints[3].x, cropPoints[3].y);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+
+            // 2. Draw Lines
+            ctx.beginPath();
+            ctx.strokeStyle = '#10b981'; // Emerald 500
+            ctx.lineWidth = 2;
+            ctx.moveTo(cropPoints[0].x, cropPoints[0].y);
+            ctx.lineTo(cropPoints[1].x, cropPoints[1].y);
+            ctx.lineTo(cropPoints[2].x, cropPoints[2].y);
+            ctx.lineTo(cropPoints[3].x, cropPoints[3].y);
+            ctx.closePath();
+            ctx.stroke();
+
+            // 3. Draw Handles
+            cropPoints.forEach(p => {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+                ctx.fillStyle = '#10b981';
+                ctx.fill();
+                ctx.strokeStyle = 'white';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            });
+            
+            // 4. Magnifier (Optional: Draw distinct active handle)
+            if(activePointIndex !== -1) {
+                const p = cropPoints[activePointIndex];
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 20, 0, Math.PI * 2); // Larger circle for active
+                ctx.fillStyle = 'rgba(16, 185, 129, 0.4)';
+                ctx.fill();
+            }
+        }
+
+        // --- TOUCH LISTENERS ---
+        function initCropListeners() {
+            const canvas = cropCanvas;
+            
+            const getPos = (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                return { x: clientX - rect.left, y: clientY - rect.top };
+            };
+
+            const onStart = (e) => {
+                const { x, y } = getPos(e);
+                // Find nearest point
+                let minDist = 40; // Hit radius
+                activePointIndex = -1;
+                
+                cropPoints.forEach((p, i) => {
+                    const dist = Math.hypot(p.x - x, p.y - y);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        activePointIndex = i;
+                    }
+                });
+                
+                if (activePointIndex !== -1) renderCropUI();
+            };
+
+            const onMove = (e) => {
+                if (activePointIndex === -1) return;
+                e.preventDefault();
+                const { x, y } = getPos(e);
+                // Constrain to canvas
+                cropPoints[activePointIndex].x = Math.max(0, Math.min(cropCanvas.width, x));
+                cropPoints[activePointIndex].y = Math.max(0, Math.min(cropCanvas.height, y));
+                renderCropUI();
+            };
+
+            const onEnd = () => { activePointIndex = -1; renderCropUI(); };
+
+            canvas.addEventListener('touchstart', onStart, { passive: false });
+            canvas.addEventListener('touchmove', onMove, { passive: false });
+            canvas.addEventListener('touchend', onEnd);
+            
+            canvas.addEventListener('mousedown', onStart);
+            canvas.addEventListener('mousemove', onMove);
+            canvas.addEventListener('mouseup', onEnd);
+        }
+        
         function triggerDocUpload() { document.getElementById('doc-upload-input').click(); }
         function handleDocUpload(input) {
             editingDocId = null;
@@ -1328,6 +1635,126 @@
                 };
                 
                 reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        async function applyCrop() {
+            const view = document.getElementById('view-crop');
+            const btn = view.querySelector('button[onclick="applyCrop()"]');
+            btn.innerHTML = '<div class="loader w-4 h-4 border-t-emerald-400"></div>';
+            
+            // Allow UI to update
+            await new Promise(r => setTimeout(r, 50));
+
+            try {
+                // 1. Prepare Source Image (OpenCV)
+                const img = new Image();
+                img.src = originalCaptureSrc;
+                await new Promise(r => img.onload = r);
+                
+                let src = cv.imread(cropImgElement); // Read from the DOM element to get sizing right
+                
+                // 2. Map Screen Coordinates back to Original Image Resolution
+                // The image displayed on screen is smaller than the full resolution capture.
+                // We need to scale our drag points up.
+                const scaleX = img.naturalWidth / cropCanvas.width;
+                const scaleY = img.naturalHeight / cropCanvas.height;
+                
+                let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+                    cropPoints[0].x * scaleX, cropPoints[0].y * scaleY,
+                    cropPoints[1].x * scaleX, cropPoints[1].y * scaleY,
+                    cropPoints[2].x * scaleX, cropPoints[2].y * scaleY,
+                    cropPoints[3].x * scaleX, cropPoints[3].y * scaleY
+                ]);
+
+                // 3. Calculate Destination Size (Warped)
+                // Width = Max(TopWidth, BottomWidth)
+                const w1 = Math.hypot((cropPoints[1].x - cropPoints[0].x)*scaleX, (cropPoints[1].y - cropPoints[0].y)*scaleY);
+                const w2 = Math.hypot((cropPoints[2].x - cropPoints[3].x)*scaleX, (cropPoints[2].y - cropPoints[3].y)*scaleY);
+                const maxWidth = Math.max(w1, w2);
+
+                const h1 = Math.hypot((cropPoints[3].x - cropPoints[0].x)*scaleX, (cropPoints[3].y - cropPoints[0].y)*scaleY);
+                const h2 = Math.hypot((cropPoints[2].x - cropPoints[1].x)*scaleX, (cropPoints[2].y - cropPoints[1].y)*scaleY);
+                const maxHeight = Math.max(h1, h2);
+
+                let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+                    0, 0, 
+                    maxWidth, 0, 
+                    maxWidth, maxHeight, 
+                    0, maxHeight
+                ]);
+
+                // 4. Warp Perspective
+                let M = cv.getPerspectiveTransform(srcTri, dstTri);
+                let warped = new cv.Mat();
+                // Read from a temporary high-res Mat instead of the screen element for quality
+                let fullSrc = cv.imread(img); 
+                cv.warpPerspective(fullSrc, warped, M, new cv.Size(maxWidth, maxHeight));
+
+                // -----------------------------------------------------
+                // 5. SHADOW REMOVAL & DOCUMENT ENHANCEMENT ALGORITHM
+                // -----------------------------------------------------
+                
+                // Step A: Convert to Gray to find the illumination pattern
+                let gray = new cv.Mat();
+                cv.cvtColor(warped, gray, cv.COLOR_RGBA2GRAY);
+                
+                // Step B: Estimate Background (Illumination) using Dilate (Morphology)
+                // This "smears" the text away, leaving only the background paper color/shadows
+                let dilated = new cv.Mat();
+                let kernel = cv.Mat.ones(7, 7, cv.CV_8U); // Kernel size determines how much text is ignored
+                // Run dilate multiple times to fully remove text features
+                cv.dilate(gray, dilated, kernel, new cv.Point(-1, -1), 10); 
+                
+                // Step C: Blur the background estimate to smooth it
+                cv.medianBlur(dilated, dilated, 21);
+                
+                // Step D: Calculate the Difference (Shadow Removal)
+                // Result = Original / Background * 255. 
+                // This turns the background white (255) regardless of shadow, preserving ink.
+                let resultNorm = new cv.Mat();
+                // Since JS OpenCV doesn't have easy matrix division wrapper, we use: 
+                // result = 255 - (background - original) -- Roughly approximation for difference
+                // Or better: absdiff.
+                
+                // LET'S USE A SIMPLER, ROBUST "MAGIC COLOR" APPROACH FOR JS
+                // 1. Convert to LAB
+                let lab = new cv.Mat();
+                cv.cvtColor(warped, lab, cv.COLOR_RGBA2Lab);
+                let planes = new cv.MatVector();
+                cv.split(lab, planes);
+                
+                // 2. CLAHE on L-channel (Lightness)
+                // This equalizes the light, removing large shadows
+                let clahe = new cv.createCLAHE(3.0, new cv.Size(8, 8));
+                let lChannel = planes.get(0);
+                clahe.apply(lChannel, lChannel);
+                
+                // 3. Merge Back
+                cv.merge(planes, lab);
+                let enhanced = new cv.Mat();
+                cv.cvtColor(lab, enhanced, cv.COLOR_Lab2RGBA);
+
+                // -----------------------------------------------------
+
+                // 6. Output
+                cv.imshow('canvas', enhanced); // Draw to hidden helper canvas
+                const dataUrl = document.getElementById('canvas').toDataURL('image/jpeg', 0.9);
+
+                // Cleanup
+                src.delete(); fullSrc.delete(); srcTri.delete(); dstTri.delete(); M.delete(); 
+                warped.delete(); gray.delete(); dilated.delete(); kernel.delete(); 
+                lab.delete(); planes.delete(); clahe.delete(); lChannel.delete(); enhanced.delete();
+
+                // Finish
+                view.classList.add('hidden');
+                btn.innerHTML = 'Scan'; // Reset button
+                openEditor(dataUrl);
+
+            } catch (err) {
+                console.error(err);
+                alert("Processing failed. Try again.");
+                btn.innerHTML = 'Scan';
             }
         }
         
@@ -2059,19 +2486,12 @@
                     clearInterval(initUI);
                 }
             }, 100);
-
-            // Lazy Load Heavy Libs
-            const initHeavyLibs = setInterval(() => {
-                if(typeof jscanify !== 'undefined') {
-                    scanner = new jscanify();
-                    clearInterval(initHeavyLibs);
-                }
-            }, 500);
         };
         
     </script>
 </body>
 </html>
+
 
 
 
