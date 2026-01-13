@@ -1528,8 +1528,8 @@
                 }
 
                 // 8. Output
-                cv.imshow('canvas', finalMat); 
-                const dataUrl = document.getElementById('canvas').toDataURL('image/jpeg', 0.95);
+                cv.imshow('processing-canvas', finalMat); 
+                const dataUrl = document.getElementById('processing-canvas').toDataURL('image/jpeg', 0.95);
 
                 // 9. Cleanup
                 src.delete(); srcTri.delete(); dstTri.delete(); M.delete(); 
@@ -2191,6 +2191,7 @@
     </script>
 </body>
 </html>
+
 
 
 
