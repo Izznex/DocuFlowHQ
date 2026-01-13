@@ -434,7 +434,7 @@
         </div>
     </div>
 
-    <script src="https://docs.opencv.org/4.7.0/opencv.js" defer></script>
+    <script src="https://docs.opencv.org/4.7.0/opencv.js" async></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/cbor-js@0.1.0/cbor.min.js" defer></script>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -1167,10 +1167,26 @@
         let src, dst, gray, cap, contours, hierarchy, approx;
         let detectedContour = null; 
 
-        cv['onRuntimeInitialized'] = () => { cvReady = true; };
+        function onOpenCvReady() {
+            cvReady = true;
+            console.log("OpenCV Ready");
+        }
+
+        // If OpenCV is already loaded (cached), trigger immediately
+        if (typeof cv !== 'undefined' && cv.Mat) {
+            onOpenCvReady();
+        } else {
+            // Otherwise wait for the callback
+            var Module = {
+                onRuntimeInitialized: onOpenCvReady
+            };
+        }
 
         function openScanner() {
-            if (!cvReady && typeof cv.Mat === 'undefined') return alert("Scanner engine loading... please wait.");
+            // Check if cv is defined AND if our ready flag is set
+            if (typeof cv === 'undefined' || !cvReady) {
+                return alert("Scanner engine loading... please wait.");
+            }
             
             document.getElementById('view-scanner').classList.remove('hidden');
             video = document.getElementById('video');
@@ -2188,4 +2204,5 @@
     </script>
 </body>
 </html>
+
 
