@@ -22,12 +22,11 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
-        // Set the worker source immediately to prevent load errors
         window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     </script>
 
     <style>
-        /* Hardware Acceleration for smoother animations */
+        /* Hardware Acceleration */
         .hardware-accel { transform: translate3d(0,0,0); backface-visibility: hidden; }
         
         /* Mobile Optimizations */
@@ -45,6 +44,7 @@
 <body class="bg-gray-900 text-white h-screen w-screen overflow-hidden font-sans antialiased selection:bg-emerald-500/30">
 
     <input type="file" id="doc-upload-input" accept="image/*,application/pdf" class="hidden" onchange="handleDocUpload(this)">
+    <canvas id="processing-canvas" class="hidden"></canvas>
 
     <header class="fixed top-0 w-full z-50 bg-gray-900/90 backdrop-blur border-b border-gray-800 p-4 flex justify-between items-center h-16 hardware-accel">
         <div class="flex items-center gap-2">
@@ -206,26 +206,12 @@
                 <div class="absolute left-2/3 top-0 w-px h-full bg-white"></div>
             </div>
 
-            <div class="absolute top-8 bg-black/50 px-4 py-2 rounded-full text-sm font-medium text-white backdrop-blur">
-                Align document & tap capture
+            <div id="scan-feedback" class="absolute top-8 bg-black/60 px-4 py-2 rounded-full text-sm font-medium text-white backdrop-blur">
+                Align document & Tap Capture
             </div>
         </div>
 
         <div class="h-32 bg-gray-900 flex items-center justify-around px-8 z-20 border-t border-gray-800 pb-safe-area">
-            <button onclick="closeScanner()" class="p-4 rounded-full bg-gray-800 text-gray-400 hover:text-white transition-colors">
-                <i data-lucide="x"></i>
-            </button>
-            
-            <button onclick="captureDoc()" class="w-20 h-20 rounded-full border-4 border-white flex items-center justify-center bg-transparent active:scale-90 transition-transform hover:bg-white/10">
-                <div class="w-16 h-16 bg-white rounded-full pointer-events-none"></div>
-            </button>
-            
-            <button onclick="triggerDocUpload()" class="p-4 rounded-full bg-gray-800 text-emerald-400 hover:bg-gray-700 transition-colors">
-                <i data-lucide="image"></i>
-            </button>
-        </div>
-    </div>
-        <div class="h-32 bg-gray-900 flex items-center justify-around px-8 z-20 border-t border-gray-800">
             <button onclick="closeScanner()" class="p-4 rounded-full bg-gray-800 text-gray-400 hover:text-white transition-colors">
                 <i data-lucide="x"></i>
             </button>
@@ -453,7 +439,7 @@
         </div>
     </div>
 
-    <script src="https://docs.opencv.org/4.10.0/opencv.js" defer></script>
+    <script src="https://docs.opencv.org/4.7.0/opencv.js" defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/cbor-js@0.1.0/cbor.min.js" defer></script>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -482,7 +468,7 @@
         let archivedJobs = [];
         let isViewingArchive = false;
         let currentJobId = null;
-        let scanner = null; // Unused now, but kept for legacy ref checks
+        let scanner = null; 
         let stream = null;
         let fabricCanvas = null;
         let isScanning = false;
@@ -1179,43 +1165,49 @@
             }, 400);
         }
 
-        // --- SIMPLE SCANNER ENGINE ---
+        // --- SIMPLE SCANNER ENGINE (Fixes Mobile Crashes) ---
         let video = null;
-        // isScanning is declared globally at the top
-        // cvReady is declared globally at the top
+        // video, stream and isScanning are declared globally
+        let cvReady = false;
 
-        // Wait for OpenCV (Only needed for the CROP/ENHANCE stage later)
-        if(typeof cv !== 'undefined') {
-             cv['onRuntimeInitialized'] = () => { cvReady = true; console.log("OpenCV Loaded"); };
+        // Initialize OpenCV
+        if (typeof cv !== 'undefined') {
+            cv['onRuntimeInitialized'] = () => { cvReady = true; };
         }
 
         function openScanner() {
             document.getElementById('view-scanner').classList.remove('hidden');
             video = document.getElementById('video');
             
-            // Robust Camera Constraints
+            const fb = document.getElementById('scan-feedback');
+            fb.innerHTML = "<span>Align document & Tap Capture</span>";
+            fb.classList.remove('hidden');
+            fb.className = "absolute top-10 bg-black/60 px-4 py-2 rounded-full text-sm font-medium text-white backdrop-blur";
+
+            const canvas = document.getElementById('highlight-canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
             const constraints = {
                 audio: false,
-                video: {
-                    facingMode: 'environment', // Rear camera
-                    width: { ideal: 1920 },    // Try for HD
-                    height: { ideal: 1080 }
+                video: { 
+                    facingMode: 'environment',
+                    width: { ideal: 1920 },
+                    height: { ideal: 1080 } 
                 }
             };
 
-            navigator.mediaDevices.getUserMedia(constraints)
-                .then(s => {
-                    stream = s;
-                    video.srcObject = stream;
-                    video.onloadedmetadata = () => {
-                        video.play().catch(e => console.error("Play error:", e));
-                    };
-                })
-                .catch(err => {
-                    console.error("Camera Error:", err);
-                    alert("Could not access camera. Please check permissions or use 'Upload Image'.");
-                    closeScanner();
-                });
+            navigator.mediaDevices.getUserMedia(constraints).then(s => {
+                stream = s;
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    video.play().catch(e => console.error("Play error:", e));
+                };
+            }).catch(err => {
+                console.error("Camera Error:", err);
+                alert("Camera unavailable. Please use 'Upload Image'.");
+                closeScanner();
+            });
         }
 
         function closeScanner() {
@@ -1229,22 +1221,17 @@
         function captureDoc() {
             if (!video || !video.videoWidth) return;
 
-            // 1. Capture High-Res Frame
-            const canvas = document.createElement('canvas');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            const ctx = canvas.getContext('2d');
+            const fullCanvas = document.createElement('canvas');
+            fullCanvas.width = video.videoWidth;
+            fullCanvas.height = video.videoHeight;
+            const ctx = fullCanvas.getContext('2d');
             
-            // Draw current video frame to canvas
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            ctx.drawImage(video, 0, 0, fullCanvas.width, fullCanvas.height);
             
-            // 2. Convert to Image URL
-            const fullImageSrc = canvas.toDataURL('image/jpeg', 0.95); 
-
-            // 3. Send to Cropper (Pass null for corners so it defaults to full box)
-            // The user will drag the corners manually
+            const fullImageSrc = fullCanvas.toDataURL('image/jpeg', 0.95); 
             openCropView(fullImageSrc, null);
         }
+
         // --- CROPPER STATE ---
         let cropPoints = []; 
         let activePointIndex = -1; 
@@ -1419,25 +1406,21 @@
             }
         }
 
-       async function applyCrop() {
+        async function applyCrop() {
             const view = document.getElementById('view-crop');
             const btn = view.querySelector('button[onclick="applyCrop()"]');
             const originalBtnText = btn.innerHTML;
             btn.innerHTML = '<div class="loader w-4 h-4 border-t-emerald-400"></div>';
             
-            // Allow UI to update
             await new Promise(r => setTimeout(r, 50));
 
             try {
-                // 1. Safety Check
                 if (typeof cv === 'undefined' || !cv.Mat) throw new Error("OpenCV not ready.");
 
-                // 2. Prepare Source Image
                 const img = new Image();
                 img.src = originalCaptureSrc;
                 await new Promise(r => img.onload = r);
 
-                // 3. Read Image to Matrix via Canvas (Safe way to get RGBA)
                 const tempCanvas = document.createElement('canvas');
                 tempCanvas.width = img.width;
                 tempCanvas.height = img.height;
@@ -1447,11 +1430,9 @@
                 let src = cv.imread(tempCanvas);
                 let warped = new cv.Mat();
                 
-                // 4. Map Coordinates
                 const scaleX = img.width / cropCanvas.width;
                 const scaleY = img.height / cropCanvas.height;
                 
-                // Ensure 4 points exist, else default to full image corners
                 let points = cropPoints;
                 if (!points || points.length !== 4) {
                     points = [
@@ -1467,7 +1448,6 @@
                     points[3].x * scaleX, points[3].y * scaleY
                 ]);
 
-                // 5. Calculate Destination Dimensions
                 const w1 = Math.hypot((points[1].x - points[0].x)*scaleX, (points[1].y - points[0].y)*scaleY);
                 const w2 = Math.hypot((points[2].x - points[3].x)*scaleX, (points[2].y - points[3].y)*scaleY);
                 const maxWidth = Math.max(w1, w2);
@@ -1480,69 +1460,43 @@
                     0, 0, maxWidth, 0, maxWidth, maxHeight, 0, maxHeight
                 ]);
 
-                // 6. Warp Perspective (Crop)
                 let M = cv.getPerspectiveTransform(srcTri, dstTri);
                 cv.warpPerspective(src, warped, M, new cv.Size(maxWidth, maxHeight));
 
-                // 7. ENHANCEMENT BLOCK (The fix for your error)
                 let finalMat = warped;
                 
-                // We wrap this in a try/catch so if color conversion fails, we still get the crop
+                // Try Enhancement with Fallback
                 try {
-                    // Check if the specific constant exists before using it
                     if (cv.COLOR_RGBA2RGB && cv.COLOR_RGB2Lab) {
                         let lab = new cv.Mat();
                         let planes = new cv.MatVector();
-                        
-                        // Convert RGBA to RGB, then to Lab
                         cv.cvtColor(warped, lab, cv.COLOR_RGBA2RGB); 
                         cv.cvtColor(lab, lab, cv.COLOR_RGB2Lab);
-                        
-                        // Split channels
                         cv.split(lab, planes);
-                        
-                        // Apply CLAHE to L channel (Lightness)
                         let clahe = new cv.createCLAHE(2.0, new cv.Size(8, 8));
                         let lChannel = planes.get(0);
                         clahe.apply(lChannel, lChannel);
-                        
-                        // Merge back
                         cv.merge(planes, lab);
-                        
-                        // Convert back to RGB then RGBA
                         let enhanced = new cv.Mat();
                         cv.cvtColor(lab, enhanced, cv.COLOR_Lab2RGB);
-                        // Just use the RGB result, display will handle it
                         finalMat = enhanced;
-                        
-                        // Cleanup local objects
                         lab.delete(); planes.delete(); clahe.delete(); enhanced.delete();
-                    } else {
-                        console.warn("Skipping enhancement: Color constants missing.");
                     }
-                } catch (enhanceErr) {
-                    console.warn("Enhancement skipped due to error:", enhanceErr);
-                    // Fallback: Just continue with 'warped' (the raw crop)
-                }
+                } catch (e) { console.warn("Enhancement skipped", e); }
 
-                // 8. Output
-                cv.imshow('canvas', finalMat); 
-                const dataUrl = document.getElementById('canvas').toDataURL('image/jpeg', 0.95);
+                cv.imshow('processing-canvas', finalMat); 
+                const dataUrl = document.getElementById('processing-canvas').toDataURL('image/jpeg', 0.95);
 
-                // 9. Cleanup
                 src.delete(); srcTri.delete(); dstTri.delete(); M.delete(); 
-                warped.delete(); 
-                // Only delete finalMat if we created a new Mat for it
-                if(finalMat !== warped) finalMat.delete();
+                warped.delete(); if(finalMat !== warped) finalMat.delete();
 
-                // 10. Finish
                 view.classList.add('hidden');
                 btn.innerHTML = originalBtnText;
                 openEditor(dataUrl);
 
             } catch (err) {
                 console.error("Apply Crop Error:", err);
-                alert("Could not crop. Please try again.");
+                alert("Error: " + err.message);
                 view.classList.add('hidden');
                 btn.innerHTML = originalBtnText;
             }
@@ -2189,9 +2143,3 @@
     </script>
 </body>
 </html>
-
-
-
-
-
-
