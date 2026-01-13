@@ -22,6 +22,7 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
+        // Set the worker source immediately to prevent load errors
         window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     </script>
 
@@ -51,7 +52,7 @@
             <h1 class="font-bold text-lg tracking-wide">DocuFlow</h1>
         </div>
         <div class="flex gap-2">
-            <input type="file" id="archive-upload" accept=".cbor" class="hidden" onchange="handleArchiveUpload(this)">
+            <input type="file" id="archive-upload" accept=".cbor,.json" class="hidden" onchange="handleArchiveUpload(this)">
             <button onclick="document.getElementById('archive-upload').click()" class="text-xs bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-full border border-gray-700 text-gray-400 flex items-center gap-1 active:scale-95 transition-transform">
                 <i data-lucide="archive-restore" class="w-3 h-3"></i> Archive
             </button>
@@ -164,23 +165,17 @@
     </div>
 
     <div id="download-modal" class="fixed inset-0 z-[90] hidden flex items-center justify-center bg-black/80 backdrop-blur-sm px-2 md:px-4 opacity-0 transition-opacity duration-200">
-        
         <div class="bg-gray-900 md:bg-gray-800 rounded-2xl w-full max-w-7xl border border-gray-700 shadow-2xl relative overflow-hidden flex flex-col md:flex-row h-[85vh] md:h-[95vh]">
-            
             <div class="absolute inset-0 md:relative md:inset-auto md:w-[70%] bg-black/50 md:bg-gray-900 flex items-center justify-center p-0 md:p-4 z-0">
                 <div class="loader absolute text-emerald-500" id="preview-loader"></div>
                 <img id="download-preview-img" class="w-full h-full object-contain opacity-0 transition-opacity duration-300" onload="this.classList.remove('opacity-0'); document.getElementById('preview-loader').classList.add('hidden')">
             </div>
-
             <div class="absolute bottom-0 left-0 right-0 z-10 p-5 bg-gray-900/95 backdrop-blur-xl border-t border-gray-700 rounded-t-2xl md:relative md:inset-auto md:w-[30%] md:bg-gray-800 md:border-t-0 md:border-l md:rounded-none md:flex md:flex-col">
-                
                 <div class="flex justify-between items-start mb-4">
                     <h3 class="text-lg md:text-xl font-bold text-white">Export to PDF</h3>
                     <button onclick="closeDownloadModal()" class="text-gray-400 hover:text-white"><i data-lucide="x" class="w-6 h-6"></i></button>
                 </div>
-                
                 <p class="hidden md:block text-sm text-gray-400 mb-6">Review the document and give it a specific name before exporting.</p>
-
                 <div class="space-y-4 md:mt-auto">
                     <div>
                         <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Filename</label>
@@ -189,7 +184,6 @@
                             <span class="absolute right-4 top-3.5 text-gray-500 text-sm">.pdf</span>
                         </div>
                     </div>
-
                     <div class="flex gap-3 pt-2">
                         <button onclick="closeDownloadModal()" class="flex-1 py-3 text-gray-400 font-medium hover:text-white rounded-xl hover:bg-gray-700/50 transition-colors">Cancel</button>
                         <button onclick="executePDFDownload()" class="flex-1 py-3 bg-emerald-500 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/20 active:scale-95 transition-transform flex justify-center items-center gap-2">
@@ -363,6 +357,7 @@
                 <input type="checkbox" id="doc-signed-check" class="w-5 h-5 text-emerald-500 rounded focus:ring-emerald-500 border-gray-600 bg-gray-800 accent-emerald-500">
                 <label for="doc-signed-check" class="text-sm text-gray-300 font-medium cursor-pointer select-none">Document is Signed & Stamped</label>
             </div>
+            <div id="ocr-loading" class="hidden text-center mb-4"><div class="loader mx-auto"></div><span class="text-xs text-gray-400 mt-2 block">Reading text...</span></div>
             <div class="flex gap-3">
                 <button id="btn-cancel-save" onclick="closeSaveModal()" class="flex-1 py-3 text-gray-400 font-medium hover:text-white rounded-lg hover:bg-gray-700/50 transition-colors">Cancel</button>
                 <button id="btn-confirm-save" onclick="confirmSave()" class="flex-1 py-3 bg-emerald-500 text-white font-bold rounded-lg shadow-lg shadow-emerald-500/20 active:scale-95 transition-transform flex justify-center items-center gap-2"><span>Save</span><i data-lucide="check" class="w-4 h-4"></i></button>
@@ -398,7 +393,6 @@
     </div>
 
     <div id="view-lightbox" class="fixed inset-0 z-[90] hidden bg-black/95 backdrop-blur flex flex-col items-center justify-center transition-opacity">
-        
         <div class="absolute top-0 left-0 right-0 p-4 pt-6 bg-gradient-to-b from-black/90 to-transparent z-20 flex justify-between items-start pointer-events-none">
             <div class="flex-1 max-w-md pointer-events-auto">
                 <label class="text-[10px] uppercase text-gray-500 font-bold tracking-wider ml-1">Document Name</label>
@@ -410,7 +404,6 @@
                 </div>
                 <p id="rename-feedback" class="text-[10px] text-emerald-500 h-4 opacity-0 transition-opacity font-medium mt-1">Saved!</p>
             </div>
-            
             <button onclick="closeLightbox()" class="text-gray-400 hover:text-white p-2 bg-black/20 rounded-full backdrop-blur pointer-events-auto ml-4">
                 <i data-lucide="x" class="w-6 h-6"></i>
             </button>
@@ -470,17 +463,17 @@
         let archivedJobs = [];
         let isViewingArchive = false;
         let currentJobId = null;
-        let scanner = null;
+        let scanner = null; // Unused now, but kept for legacy ref checks
         let stream = null;
         let fabricCanvas = null;
         let isScanning = false;
         let currentFilterIndex = 0; 
         let currentSearchTerm = "";
         let editingDocId = null;
-        let pendingDownloadDocId = null; // Track doc waiting for download
-        let viewingDocId = null; // Track doc currently in lightbox
-        let batchQueue = []; // Stores images for multi-page documents
-        let isPdfBatch = false; // Track if we are processing a multi-page PDF
+        let pendingDownloadDocId = null; 
+        let viewingDocId = null; 
+        let batchQueue = []; 
+        let isPdfBatch = false; 
         let pendingDeleteType = 'doc'; // 'doc' or 'job'
 
         // --- 2. HELPERS (Must be first) ---
@@ -508,12 +501,9 @@
             return totalBytes;
         }
 
-       function getJobStatus(job) {
+        function getJobStatus(job) {
             if(!job || !job.documents) return 'Open';
-            
-            // LOGIC CHANGE: Job is complete only if a Delivery Order is signed
             const hasSignedDO = job.documents.some(d => d.docCategory === 'Delivery Order' && d.isSigned === true);
-            
             return hasSignedDO ? 'Completed' : 'Open';
         }
 
@@ -521,17 +511,13 @@
             if(!documents) return '';
             const presentCats = new Set(documents.map(d => d.docCategory));
             
-            // STRICT SEQUENCE: 
-            // Quotation -> Purchase Request -> Purchase Order -> Service Report -> Delivery Order -> Invoice -> Others
             const badgeOrder = [
                 { key: 'Quotation', label: 'QT', color: 'bg-purple-900/40 text-purple-300 border-purple-700/50' },
                 { key: 'Purchase Request', label: 'PR', color: 'bg-orange-900/40 text-orange-300 border-orange-700/50' },
                 { key: 'Purchase Order', label: 'PO', color: 'bg-emerald-900/40 text-emerald-300 border-emerald-700/50' },
                 { key: 'Service Report', label: 'SR', color: 'bg-blue-900/40 text-blue-300 border-blue-700/50' },
                 { key: 'Delivery Order', label: 'DO', color: 'bg-cyan-900/40 text-cyan-300 border-cyan-700/50' },
-                { key: 'Invoice', label: 'INV', color: 'bg-pink-900/40 text-pink-300 border-pink-700/50' }, // <--- Moved Here
-                
-                // Catch-all / Others
+                { key: 'Invoice', label: 'INV', color: 'bg-pink-900/40 text-pink-300 border-pink-700/50' },
                 { key: 'Permit to Work', label: 'PTW', color: 'bg-red-900/40 text-red-300 border-red-700/50' },
                 { key: 'Other', label: 'OTH', color: 'bg-gray-700/40 text-gray-400 border-gray-600/50' }
             ];
@@ -549,7 +535,6 @@
         }
 
         async function processPdfFile(file) {
-            // UI Feedback
             const loader = document.createElement('div');
             loader.className = 'fixed inset-0 z-[100] bg-black/80 flex items-center justify-center flex-col text-emerald-400 font-bold';
             loader.innerHTML = '<div class="loader mb-4"></div>Processing PDF Pages...';
@@ -559,17 +544,14 @@
                 const arrayBuffer = await file.arrayBuffer();
                 const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
                 
-                // Clear existing queue
                 batchQueue = [];
-                isPdfBatch = true; // Set flag so save logic knows order
+                isPdfBatch = true; 
 
-                // Loop through all pages
                 for (let i = 1; i <= pdf.numPages; i++) {
                     const page = await pdf.getPage(i);
-                    const scale = 2.0; // High res for good quality
+                    const scale = 2.0; 
                     const viewport = page.getViewport({ scale: scale });
                     
-                    // Render to off-screen canvas
                     const canvas = document.createElement('canvas');
                     const context = canvas.getContext('2d');
                     canvas.height = viewport.height;
@@ -580,16 +562,13 @@
                     const imgData = canvas.toDataURL('image/webp', 0.9);
 
                     if (i === 1) {
-                        // Page 1 goes immediately to the Editor
                         closeScanner();
                         openEditor(imgData);
                     } else {
-                        // Pages 2+ go to the queue waiting to be saved
                         batchQueue.push(imgData);
                     }
                 }
                 
-                // Feedback
                 const title = document.querySelector('#add-menu-modal h3');
                 if(title) title.textContent = `PDF: ${pdf.numPages} Pages Loaded`;
 
@@ -600,8 +579,9 @@
                 document.body.removeChild(loader);
             }
         }
+
         // --- 3. CORE UI FUNCTIONS ---
-       function updateStorageUI() {
+        function updateStorageUI() {
             const totalBytes = calculateTotalUsage();
             const usedMB = (totalBytes / (1024 * 1024)).toFixed(1);
             const percentage = Math.min((usedMB / STORAGE_LIMIT_MB) * 100, 100);
@@ -618,10 +598,6 @@
             }
 
             const alertBox = document.getElementById('archive-alert');
-            
-            // --- CHANGE IS HERE ---
-            // Old logic: if(percentage >= 95 || hasCompleted)
-            // New logic: Only show if storage is over 80% full
             if(alertBox) {
                 if(percentage >= 80) { 
                     alertBox.classList.remove('hidden'); 
@@ -755,32 +731,24 @@
             const title = titleInput.value.trim();
             if (!title) return alert("Please enter a job title.");
             
-            // --- NEW: INCREMENTAL ID LOGIC ---
-            let maxId = 1000; // Default starting number (will result in J-1001)
+            let maxId = 1000; 
             
-            // 1. Combine active list and any loaded archives to find the true highest ID
             const allKnownJobs = [...jobs, ...archivedJobs];
-            
             if (allKnownJobs.length > 0) {
                 const ids = allKnownJobs.map(j => {
-                    // Remove "J-" and any other non-digits, then parse as integer
                     const num = parseInt(j.id.replace(/\D/g, ''), 10); 
                     return isNaN(num) ? 0 : num;
                 });
-                // Find the highest existing number
                 maxId = Math.max(...ids);
             }
             
-            // 2. Increment by 1
             const nextIdNum = maxId + 1;
             const newId = 'J-' + nextIdNum;
-            // ---------------------------------
 
             const dateStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
             
             const newJob = { id: newId, client: title, date: dateStr, documents: [] };
             
-            // Save to Firestore
             if (db) { 
                 db.collection('jobs').doc(newId).set(newJob).catch(e => console.error(e)); 
             }
@@ -788,7 +756,6 @@
             closeNewJobModal();
         }
 
-        // --- RENAME JOB LOGIC ---
         function openRenameJobModal() {
             if (!currentJobId) return;
             const job = jobs.find(j => j.id === currentJobId);
@@ -796,8 +763,6 @@
 
             const modal = document.getElementById('rename-job-modal');
             const input = document.getElementById('rename-job-input');
-            
-            // Pre-fill current name
             input.value = job.client;
             
             modal.classList.remove('hidden');
@@ -814,28 +779,21 @@
             const modal = document.getElementById('rename-job-modal');
             
             try {
-                // 1. Update Database
                 if (db) {
                     await db.collection('jobs').doc(currentJobId).update({ client: newName });
                 }
-
-                // 2. Update Local State
                 const job = jobs.find(j => j.id === currentJobId);
                 if (job) job.client = newName;
 
-                // 3. Update UI
                 document.getElementById('detail-client').textContent = newName;
-                renderJobs(); // Update the main list in background
-
+                renderJobs(); 
                 modal.classList.add('hidden');
-
             } catch (e) {
                 console.error("Rename failed", e);
                 alert("Failed to rename job.");
             }
         }
         
-        // --- DETAILS ---
         function openJobDetails(id) {
             currentJobId = id;
             const sourceList = isViewingArchive ? archivedJobs : jobs;
@@ -874,7 +832,6 @@
             }
             emptyState.classList.add('hidden');
             
-            // SORTING LOGIC
             const sortWeights = {
                 'Quotation': 1,
                 'Purchase Request': 2,
@@ -887,27 +844,18 @@
             };
 
             const sortedDocs = [...job.documents].sort((a, b) => {
-                // 1. Primary Sort: Category Weight
                 const weightA = sortWeights[a.docCategory] || 99;
                 const weightB = sortWeights[b.docCategory] || 99;
                 
-                if (weightA !== weightB) {
-                    return weightA - weightB;
-                }
+                if (weightA !== weightB) return weightA - weightB;
                 
-                // 2. Secondary Sort: Handle Multi-page Bundles
-                // We strip the "(Page X)" suffix to see if they are the same base document
                 const getBaseName = (name) => name.replace(/\s*\(Page\s+\d+\).*/i, '');
                 const baseA = getBaseName(a.name);
                 const baseB = getBaseName(b.name);
 
                 if (baseA === baseB) {
-                    // IF SAME DOCUMENT: Sort Ascending by Name (Page 1 -> Page 2 -> Page 3)
-                    // { numeric: true } ensures "Page 10" comes after "Page 2", not before.
                     return a.name.localeCompare(b.name, undefined, { numeric: true });
                 }
-
-                // 3. Tertiary Sort: Different Documents -> Newest First (Descending ID)
                 return b.id.localeCompare(a.id); 
             });
 
@@ -916,19 +864,14 @@
                 if (doc.type === 'img' || doc.type === 'scan') icon = 'image';
                 if (doc.type === 'pdf') icon = 'file';
                 
-                // CHANGED: Identify Delivery Order instead of PO
                 const isDO = doc.docCategory === 'Delivery Order';
-                
                 const displayName = doc.name.replace(/\.[^/.]+$/, "");
 
                 let actionButtons = '';
                 if (isViewingArchive) {
                     actionButtons = `<button onclick="event.stopPropagation()" class="p-2 text-gray-500 cursor-not-allowed border border-gray-700 rounded"><i data-lucide="lock" class="w-4 h-4"></i></button>`;
                 } else {
-                    // Edit Button
                     actionButtons += `<button onclick="event.stopPropagation(); editExistingDoc('${doc.id}')" class="p-2 text-blue-400 hover:text-white bg-blue-900/20 rounded border border-blue-900/50 mr-2"><i data-lucide="pen-tool" class="w-4 h-4"></i></button>`;
-                    
-                    // Delete Button (New)
                     actionButtons += `<button onclick="event.stopPropagation(); promptDelete('${doc.id}', 'doc')" class="p-2 text-red-400 hover:text-white bg-red-900/20 rounded border border-red-900/50"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`;
                 }
 
@@ -963,7 +906,7 @@
             `}).join('');
             if(typeof lucide !== 'undefined') lucide.createIcons();
         }
-        // --- SCANNER / EDITOR ---
+
         function editExistingDoc(docId) {
             if(isViewingArchive) return;
             editingDocId = docId;
@@ -987,9 +930,7 @@
             const doc = job.documents.find(d => d.id === docId);
             if(!doc) return;
 
-            viewingDocId = docId; // Store ID for renaming
-
-            // UI Loading State
+            viewingDocId = docId; 
             document.body.style.cursor = 'wait';
 
             ensureDocImageLoaded(job, doc).then(imgSrc => {
@@ -1000,13 +941,9 @@
                     const editBtn = document.getElementById('lightbox-edit-btn');
                     const nameInput = document.getElementById('lightbox-filename');
                     
-                    // Setup Image
                     img.src = imgSrc;
-                    
-                    // Setup Name (Strip extension for display)
                     nameInput.value = doc.name.replace(/\.[^/.]+$/, "");
                     
-                    // Setup Edit Button
                     editBtn.onclick = (e) => { 
                         e.stopPropagation();
                         closeLightbox(); 
@@ -1026,14 +963,13 @@
 
         function promptDelete(id, type = 'doc') {
             pendingDeleteId = id;
-            pendingDeleteType = type; // Store the type
+            pendingDeleteType = type; 
             
             const modal = document.getElementById('delete-modal');
             const title = document.getElementById('delete-modal-title');
             const input = document.getElementById('delete-confirmation-input');
             const btn = document.getElementById('btn-confirm-delete');
             
-            // Dynamic UI
             if (type === 'job') {
                 title.textContent = "Delete Entire Job?";
                 title.classList.add('text-red-400');
@@ -1042,13 +978,11 @@
                 title.classList.remove('text-red-400');
             }
 
-            // Reset State
             input.value = '';
-            btn.innerHTML = '<span>Delete</span>'; // Reset loading state if any
+            btn.innerHTML = '<span>Delete</span>';
             btn.disabled = true;
             btn.className = "flex-1 py-3 bg-gray-700 text-gray-500 font-bold rounded-xl transition-all cursor-not-allowed flex justify-center items-center gap-2";
             
-            // Show Modal
             modal.classList.remove('hidden');
             setTimeout(() => modal.classList.remove('opacity-0'), 10);
             setTimeout(() => input.focus(), 100);
@@ -1068,11 +1002,9 @@
             const val = input.value.trim().toLowerCase();
             
             if (val === 'delete') {
-                // Enable Button (Turn Red)
                 btn.disabled = false;
                 btn.className = "flex-1 py-3 bg-red-600 text-white hover:bg-red-500 font-bold rounded-xl shadow-lg shadow-red-900/40 active:scale-95 transition-all flex justify-center items-center gap-2";
             } else {
-                // Disable Button (Turn Gray)
                 btn.disabled = true;
                 btn.className = "flex-1 py-3 bg-gray-700 text-gray-500 font-bold rounded-xl transition-all cursor-not-allowed flex justify-center items-center gap-2";
             }
@@ -1087,25 +1019,15 @@
             try {
                 if (db) {
                     if (pendingDeleteType === 'job') {
-                        // === DELETE JOB LOGIC ===
                         const jobRef = db.collection('jobs').doc(pendingDeleteId);
-                        
-                        // 1. Delete all sub-documents (scans) to free storage
-                        // Note: Client-side batch delete is limited to 500 ops, should be fine here.
                         const snapshot = await jobRef.collection('scans').get();
                         const batch = db.batch();
                         
-                        snapshot.docs.forEach(doc => {
-                            batch.delete(doc.ref);
-                        });
-                        
-                        // 2. Delete the parent job document
+                        snapshot.docs.forEach(doc => { batch.delete(doc.ref); });
                         batch.delete(jobRef);
                         
                         await batch.commit();
-                        
                     } else {
-                        // === DELETE DOCUMENT LOGIC (Existing) ===
                         const jobRef = db.collection('jobs').doc(currentJobId);
                         const job = jobs.find(j => j.id === currentJobId);
                         const docToDelete = job.documents.find(d => d.id === pendingDeleteId);
@@ -1118,9 +1040,7 @@
                         }
                     }
                 } else {
-                    // OFFLINE LOGIC
                     if (pendingDeleteType === 'job') {
-                        // Just filter it out of the local list
                         jobs = jobs.filter(j => j.id !== pendingDeleteId);
                         renderJobs();
                     } else {
@@ -1130,21 +1050,17 @@
                     }
                 }
 
-                // 3. UI Cleanup
                 closeDeleteModal();
                 
                 if (pendingDeleteType === 'job') {
-                    // If we deleted the job, close the details view
                     closeJobDetails();
                     alert("Job deleted successfully.");
                 } else {
-                    // If we deleted a doc, just refresh the list
                     if (currentJobId) {
                         const updatedJob = jobs.find(j => j.id === currentJobId);
                         renderDocumentList(updatedJob);
                     }
                 }
-
             } catch (err) {
                 console.error("Delete failed:", err);
                 alert("Failed to delete. Please check connection.");
@@ -1159,23 +1075,19 @@
             const feedback = document.getElementById('rename-feedback');
             const cleanName = nameInput.value.trim();
             
-            if (!cleanName) return; // Don't save empty names
+            if (!cleanName) return; 
 
             const finalName = cleanName + '.webp';
-
-            // 1. Update Local Data
             const job = jobs.find(j => j.id === currentJobId);
             const doc = job.documents.find(d => d.id === viewingDocId);
             if (doc) {
                 doc.name = finalName;
-                renderDocumentList(job); // Refresh list behind the modal
+                renderDocumentList(job); 
             }
 
-            // 2. Show "Saved" feedback
             feedback.classList.remove('opacity-0');
             setTimeout(() => feedback.classList.add('opacity-0'), 2000);
 
-            // 3. Update Firebase (Background)
             if (db) {
                 try {
                     const jobRef = db.collection('jobs').doc(currentJobId);
@@ -1186,8 +1098,6 @@
                         if (idx !== -1) {
                             currentDocs[idx].name = finalName;
                             await jobRef.update({ documents: currentDocs });
-                            
-                            // Optional: Update the actual scan document metadata too
                             await db.collection('jobs').doc(currentJobId).collection('scans').doc(viewingDocId).update({ name: finalName });
                         }
                     }
@@ -1206,13 +1116,9 @@
         }
 
         async function ensureDocImageLoaded(job, doc) {
-            // 1. If we already have the image in memory, return it
             if (doc.src && doc.src.length > 100) return doc.src;
-            
-            // 2. If viewing an archive, we can't fetch from DB
             if (isViewingArchive) return null;
             
-            // 3. Fetch from Firebase
             if (db && doc.id) {
                 try {
                     const docRef = db.collection('jobs').doc(job.id).collection('scans').doc(doc.id);
@@ -1220,11 +1126,10 @@
                     if (snapshot.exists) {
                         const data = snapshot.data();
                         if (data.image_blob) {
-                            // Convert Firebase Blob to Object URL
                             const uint8Array = data.image_blob.toUint8Array();
                             const blob = new Blob([uint8Array], { type: 'image/webp' });
                             const url = URL.createObjectURL(blob);
-                            doc.src = url; // Cache it locally
+                            doc.src = url; 
                             return url;
                         } else if (data.src) {
                             doc.src = data.src;
@@ -1238,28 +1143,18 @@
 
         function handleAddPage() {
             if (!fabricCanvas) return;
-
-            // 1. Get current image
-            const multiplier = 2; // Better quality for storage
+            const multiplier = 2; 
             const dataURL = fabricCanvas.toDataURL({ format: 'webp', quality: 0.9, multiplier: multiplier });
-
-            // 2. Add to Queue
             batchQueue.push(dataURL);
 
-            // 3. Feedback
             const btn = event.currentTarget;
             const originalText = btn.innerHTML;
             btn.innerHTML = `<span class='text-green-400'>Added!</span>`;
             
             setTimeout(() => {
-                // 4. Reset for next page
                 btn.innerHTML = originalText;
                 document.getElementById('view-editor').classList.add('hidden');
-                
-                // Open Add Menu directly so user can choose Camera/Upload/Paste again
                 openAddMenu();
-                
-                // Optional: Update Add Menu title to show page count
                 const title = document.querySelector('#add-menu-modal h3');
                 if(title) title.textContent = `Add Page ${batchQueue.length + 1}`;
             }, 400);
@@ -1268,14 +1163,11 @@
         // --- SMART SCANNER ENGINE (OpenCV) ---
         let video = null;
         let stream = null;
-        let isScanning = false;
         let cvReady = false;
         
-        // OpenCV Objects (Reused to prevent memory leaks)
         let src, dst, gray, cap, contours, hierarchy, approx;
-        let detectedContour = null; // Stores the best 4 points found
+        let detectedContour = null; 
 
-        // Wait for OpenCV to load
         cv['onRuntimeInitialized'] = () => { cvReady = true; };
 
         function openScanner() {
@@ -1287,12 +1179,10 @@
             feedback.classList.remove('hidden'); 
             feedback.classList.add('flex');
             
-            // Setup Canvas for Visual Feedback
             const canvas = document.getElementById('highlight-canvas');
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
 
-            // Start Camera
             navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } 
             }).then(s => {
@@ -1300,9 +1190,8 @@
                 video.srcObject = stream;
                 video.play();
                 
-                // Initialize OpenCV Matrices once video is ready
                 video.onloadedmetadata = () => {
-                    // Initialize Matrices if they don't exist
+                    // Reuse or Init Matrices
                     if(!src) src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
                     if(!dst) dst = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC1);
                     if(!gray) gray = new cv.Mat();
@@ -1332,55 +1221,47 @@
             try {
                 if (!video.videoWidth) { requestAnimationFrame(scanLoop); return; }
                 
-                // 1. Capture Frame to OpenCV matrix
                 let cap = new cv.VideoCapture(video);
                 cap.read(src);
 
-                // 2. Pre-processing (Gray -> Blur -> Canny)
                 cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
                 cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0);
                 cv.Canny(gray, dst, 75, 200);
 
-                // 3. Find Contours
                 cv.findContours(dst, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
                 let maxArea = 0;
                 let bestApprox = null;
 
-                // 4. Find the largest 4-sided polygon
                 for (let i = 0; i < contours.size(); ++i) {
                     let cnt = contours.get(i);
                     let area = cv.contourArea(cnt);
                     
-                    // Min area filter (ignore small noise)
                     if (area > 50000) { 
                         let perimeter = cv.arcLength(cnt, true);
                         cv.approxPolyDP(cnt, approx, 0.02 * perimeter, true);
                         
                         if (approx.rows === 4 && area > maxArea) {
                             maxArea = area;
-                            bestApprox = approx; // Just reference it
+                            bestApprox = approx; 
                         }
                     }
                 }
 
-                // 5. Draw Feedback
                 const canvas = document.getElementById('highlight-canvas');
                 const ctx = canvas.getContext('2d');
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
 
                 if (bestApprox) {
-                    detectedContour = bestApprox.clone(); // Clone for later use
+                    detectedContour = bestApprox.clone(); 
                     
-                    // Scale points to fit screen canvas
                     const scaleX = canvas.width / video.videoWidth;
                     const scaleY = canvas.height / video.videoHeight;
                     
                     ctx.beginPath();
                     ctx.lineWidth = 4;
-                    ctx.strokeStyle = '#00FF00'; // Lime Green
+                    ctx.strokeStyle = '#00FF00'; 
                     
-                    // Draw lines between the 4 points
                     const p0 = bestApprox.data32S;
                     ctx.moveTo(p0[0] * scaleX, p0[1] * scaleY);
                     ctx.lineTo(p0[2] * scaleX, p0[3] * scaleY);
@@ -1389,7 +1270,6 @@
                     ctx.closePath();
                     ctx.stroke();
                     
-                    // Feedback Text
                     const fb = document.getElementById('scan-feedback');
                     fb.innerHTML = "<span>Tap to Capture</span>";
                     fb.classList.replace('bg-black/60', 'bg-emerald-600/90');
@@ -1400,9 +1280,7 @@
                     fb.classList.replace('bg-emerald-600/90', 'bg-black/60');
                 }
 
-            } catch (err) {
-                console.error(err);
-            }
+            } catch (err) { console.error(err); }
 
             requestAnimationFrame(scanLoop);
         }
@@ -1410,7 +1288,6 @@
         function captureDoc() {
             if (!video || !video.videoWidth) return;
 
-            // 1. Capture High-Res Frame
             const fullCanvas = document.createElement('canvas');
             fullCanvas.width = video.videoWidth;
             fullCanvas.height = video.videoHeight;
@@ -1418,28 +1295,19 @@
             ctx.drawImage(video, 0, 0);
             
             const fullImageSrc = fullCanvas.toDataURL('image/jpeg', 1.0); 
-
-            // 2. Prepare detected corners (if any) for the Cropper
-            let corners = null;
-            if (detectedContour) {
-                // Extract points from OpenCV Mat
-                // (Optional: You can pass these to initCropPoints if you want the 
-                // crop box to snap to the green lines automatically)
-            }
-
-            // 3. Send to Cropper View
-            openCropView(fullImageSrc, corners);
+            // Auto-crop logic is placeholder (null) to use manual crop defaults
+            openCropView(fullImageSrc, null);
         }
 
         // --- CROPPER STATE ---
-        let cropPoints = []; // [tl, tr, br, bl] (Each is {x, y})
-        let activePointIndex = -1; // Which point is being dragged?
+        let cropPoints = []; 
+        let activePointIndex = -1; 
         let cropImgElement = null;
         let cropCanvas = null;
-        let originalCaptureSrc = null; // High-res source
+        let originalCaptureSrc = null; 
 
         function openCropView(imageSrc, detectedCorners) {
-            document.getElementById('view-scanner').classList.add('hidden'); // Hide camera
+            document.getElementById('view-scanner').classList.add('hidden'); 
             const view = document.getElementById('view-crop');
             view.classList.remove('hidden');
             
@@ -1449,7 +1317,6 @@
 
             cropImgElement.src = imageSrc;
             
-            // Wait for image layout to calculate positions
             cropImgElement.onload = () => {
                 initCropPoints(detectedCorners);
                 renderCropUI();
@@ -1459,36 +1326,24 @@
 
         function closeCropView() {
             document.getElementById('view-crop').classList.add('hidden');
-            // Re-open scanner if needed, or go back to home
             openScanner(); 
         }
 
         function initCropPoints(autoCorners) {
-            // Get the actual displayed size of the image on screen
             const rect = cropImgElement.getBoundingClientRect();
             const canvas = cropCanvas;
             canvas.width = rect.width;
             canvas.height = rect.height;
             
-            // If OpenCV found corners, scale them to the screen
-            // autoCorners should be normalized (0.0 to 1.0) or matched to original image size
-            // For simplicity in this example, we default to a structured box if no corners passed
-            
             const padding = 40;
             const w = canvas.width;
             const h = canvas.height;
             
-            if (autoCorners && autoCorners.length === 4) {
-                 // Map detected corners here (omitted for brevity, defaulting to manual box is safer fallback)
-                 // You would scale: x * (rect.width / originalWidth)
-            } 
-            
-            // Default 4 corners (TL, TR, BR, BL)
             cropPoints = [
-                { x: padding, y: padding },             // TL
-                { x: w - padding, y: padding },         // TR
-                { x: w - padding, y: h - padding },     // BR
-                { x: padding, y: h - padding }          // BL
+                { x: padding, y: padding },             
+                { x: w - padding, y: padding },         
+                { x: w - padding, y: h - padding },     
+                { x: padding, y: h - padding }          
             ];
         }
 
@@ -1496,11 +1351,9 @@
             const ctx = cropCanvas.getContext('2d');
             ctx.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
             
-            // 1. Draw Mask (Darken outside)
             ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
             ctx.fillRect(0, 0, cropCanvas.width, cropCanvas.height);
             
-            // Cut out the selected area
             ctx.save();
             ctx.globalCompositeOperation = 'destination-out';
             ctx.beginPath();
@@ -1512,9 +1365,8 @@
             ctx.fill();
             ctx.restore();
 
-            // 2. Draw Lines
             ctx.beginPath();
-            ctx.strokeStyle = '#10b981'; // Emerald 500
+            ctx.strokeStyle = '#10b981'; 
             ctx.lineWidth = 2;
             ctx.moveTo(cropPoints[0].x, cropPoints[0].y);
             ctx.lineTo(cropPoints[1].x, cropPoints[1].y);
@@ -1523,7 +1375,6 @@
             ctx.closePath();
             ctx.stroke();
 
-            // 3. Draw Handles
             cropPoints.forEach(p => {
                 ctx.beginPath();
                 ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
@@ -1534,17 +1385,15 @@
                 ctx.stroke();
             });
             
-            // 4. Magnifier (Optional: Draw distinct active handle)
             if(activePointIndex !== -1) {
                 const p = cropPoints[activePointIndex];
                 ctx.beginPath();
-                ctx.arc(p.x, p.y, 20, 0, Math.PI * 2); // Larger circle for active
+                ctx.arc(p.x, p.y, 20, 0, Math.PI * 2); 
                 ctx.fillStyle = 'rgba(16, 185, 129, 0.4)';
                 ctx.fill();
             }
         }
 
-        // --- TOUCH LISTENERS ---
         function initCropListeners() {
             const canvas = cropCanvas;
             
@@ -1557,8 +1406,7 @@
 
             const onStart = (e) => {
                 const { x, y } = getPos(e);
-                // Find nearest point
-                let minDist = 40; // Hit radius
+                let minDist = 40; 
                 activePointIndex = -1;
                 
                 cropPoints.forEach((p, i) => {
@@ -1576,7 +1424,6 @@
                 if (activePointIndex === -1) return;
                 e.preventDefault();
                 const { x, y } = getPos(e);
-                // Constrain to canvas
                 cropPoints[activePointIndex].x = Math.max(0, Math.min(cropCanvas.width, x));
                 cropPoints[activePointIndex].y = Math.max(0, Math.min(cropCanvas.height, y));
                 renderCropUI();
@@ -1587,7 +1434,6 @@
             canvas.addEventListener('touchstart', onStart, { passive: false });
             canvas.addEventListener('touchmove', onMove, { passive: false });
             canvas.addEventListener('touchend', onEnd);
-            
             canvas.addEventListener('mousedown', onStart);
             canvas.addEventListener('mousemove', onMove);
             canvas.addEventListener('mouseup', onEnd);
@@ -1598,23 +1444,17 @@
             editingDocId = null;
             if (input.files && input.files[0]) {
                 const file = input.files[0];
-                
-                // CHECK FOR PDF
                 if (file.type === 'application/pdf') {
                     processPdfFile(file);
                     input.value = '';
                     return;
                 }
-
-                // Standard Image Logic
                 if (!file.type.startsWith('image/')) { 
                     alert("⚠️ Restricted Format\n\nOnly Images and PDFs are allowed."); 
                     input.value = ''; 
                     return; 
                 }
-                
-                // Normal Image Upload
-                isPdfBatch = false; // Reset flag
+                isPdfBatch = false; 
                 const reader = new FileReader();
                 reader.onload = function(e) { closeScanner(); openEditor(e.target.result); }
                 reader.readAsDataURL(file);
@@ -1625,15 +1465,10 @@
         function processStampUpload(input) {
             if (input.files && input.files[0]) {
                 const reader = new FileReader();
-                
                 reader.onload = function(e) {
-                    // Use the shared helper! 
-                    // This ensures Uploads get the same "Background Removal" treatment as Pastes.
                     processAndAddStamp(e.target.result); 
-                    
-                    input.value = ''; // Reset so you can select the same file again
+                    input.value = ''; 
                 };
-                
                 reader.readAsDataURL(input.files[0]);
             }
         }
@@ -1643,20 +1478,15 @@
             const btn = view.querySelector('button[onclick="applyCrop()"]');
             btn.innerHTML = '<div class="loader w-4 h-4 border-t-emerald-400"></div>';
             
-            // Allow UI to update
             await new Promise(r => setTimeout(r, 50));
 
             try {
-                // 1. Prepare Source Image (OpenCV)
                 const img = new Image();
                 img.src = originalCaptureSrc;
                 await new Promise(r => img.onload = r);
                 
-                let src = cv.imread(cropImgElement); // Read from the DOM element to get sizing right
+                let src = cv.imread(cropImgElement); 
                 
-                // 2. Map Screen Coordinates back to Original Image Resolution
-                // The image displayed on screen is smaller than the full resolution capture.
-                // We need to scale our drag points up.
                 const scaleX = img.naturalWidth / cropCanvas.width;
                 const scaleY = img.naturalHeight / cropCanvas.height;
                 
@@ -1667,8 +1497,6 @@
                     cropPoints[3].x * scaleX, cropPoints[3].y * scaleY
                 ]);
 
-                // 3. Calculate Destination Size (Warped)
-                // Width = Max(TopWidth, BottomWidth)
                 const w1 = Math.hypot((cropPoints[1].x - cropPoints[0].x)*scaleX, (cropPoints[1].y - cropPoints[0].y)*scaleY);
                 const w2 = Math.hypot((cropPoints[2].x - cropPoints[3].x)*scaleX, (cropPoints[2].y - cropPoints[3].y)*scaleY);
                 const maxWidth = Math.max(w1, w2);
@@ -1684,71 +1512,33 @@
                     0, maxHeight
                 ]);
 
-                // 4. Warp Perspective
                 let M = cv.getPerspectiveTransform(srcTri, dstTri);
                 let warped = new cv.Mat();
-                // Read from a temporary high-res Mat instead of the screen element for quality
                 let fullSrc = cv.imread(img); 
                 cv.warpPerspective(fullSrc, warped, M, new cv.Size(maxWidth, maxHeight));
 
-                // -----------------------------------------------------
-                // 5. SHADOW REMOVAL & DOCUMENT ENHANCEMENT ALGORITHM
-                // -----------------------------------------------------
-                
-                // Step A: Convert to Gray to find the illumination pattern
-                let gray = new cv.Mat();
-                cv.cvtColor(warped, gray, cv.COLOR_RGBA2GRAY);
-                
-                // Step B: Estimate Background (Illumination) using Dilate (Morphology)
-                // This "smears" the text away, leaving only the background paper color/shadows
-                let dilated = new cv.Mat();
-                let kernel = cv.Mat.ones(7, 7, cv.CV_8U); // Kernel size determines how much text is ignored
-                // Run dilate multiple times to fully remove text features
-                cv.dilate(gray, dilated, kernel, new cv.Point(-1, -1), 10); 
-                
-                // Step C: Blur the background estimate to smooth it
-                cv.medianBlur(dilated, dilated, 21);
-                
-                // Step D: Calculate the Difference (Shadow Removal)
-                // Result = Original / Background * 255. 
-                // This turns the background white (255) regardless of shadow, preserving ink.
-                let resultNorm = new cv.Mat();
-                // Since JS OpenCV doesn't have easy matrix division wrapper, we use: 
-                // result = 255 - (background - original) -- Roughly approximation for difference
-                // Or better: absdiff.
-                
-                // LET'S USE A SIMPLER, ROBUST "MAGIC COLOR" APPROACH FOR JS
-                // 1. Convert to LAB
+                // --- MAGIC COLOR ENHANCEMENT ---
                 let lab = new cv.Mat();
                 cv.cvtColor(warped, lab, cv.COLOR_RGBA2Lab);
                 let planes = new cv.MatVector();
                 cv.split(lab, planes);
                 
-                // 2. CLAHE on L-channel (Lightness)
-                // This equalizes the light, removing large shadows
                 let clahe = new cv.createCLAHE(3.0, new cv.Size(8, 8));
                 let lChannel = planes.get(0);
                 clahe.apply(lChannel, lChannel);
                 
-                // 3. Merge Back
                 cv.merge(planes, lab);
                 let enhanced = new cv.Mat();
                 cv.cvtColor(lab, enhanced, cv.COLOR_Lab2RGBA);
 
-                // -----------------------------------------------------
-
-                // 6. Output
-                cv.imshow('canvas', enhanced); // Draw to hidden helper canvas
+                cv.imshow('canvas', enhanced); 
                 const dataUrl = document.getElementById('canvas').toDataURL('image/jpeg', 0.9);
 
-                // Cleanup
                 src.delete(); fullSrc.delete(); srcTri.delete(); dstTri.delete(); M.delete(); 
-                warped.delete(); gray.delete(); dilated.delete(); kernel.delete(); 
-                lab.delete(); planes.delete(); clahe.delete(); lChannel.delete(); enhanced.delete();
+                warped.delete(); lab.delete(); planes.delete(); clahe.delete(); lChannel.delete(); enhanced.delete();
 
-                // Finish
                 view.classList.add('hidden');
-                btn.innerHTML = 'Scan'; // Reset button
+                btn.innerHTML = 'Scan'; 
                 openEditor(dataUrl);
 
             } catch (err) {
@@ -1763,7 +1553,6 @@
             menu.classList.toggle('hidden');
         }
 
-        // Close menu if clicking elsewhere
         document.addEventListener('click', function(e) {
             const menu = document.getElementById('stamp-options-menu');
             const btn = e.target.closest('button[onclick="toggleStampMenu()"]');
@@ -1776,7 +1565,6 @@
 
         async function handlePasteButton() {
             try {
-                // Try to read clipboard data programmatically
                 const clipboardItems = await navigator.clipboard.read();
                 for (const item of clipboardItems) {
                     if (item.types.some(type => type.startsWith('image/'))) {
@@ -1789,7 +1577,6 @@
                 }
                 alert("No image found in clipboard.");
             } catch (err) {
-                // Fallback if browser blocks clipboard access
                 console.warn("Clipboard access denied or not supported:", err);
                 alert("Please press Ctrl+V (or Cmd+V) on your keyboard to paste.");
             }
@@ -1799,7 +1586,6 @@
             if (!fabricCanvas) return;
             
             fabric.Image.fromURL(dataUrl, function(img) {
-                // 1. Calculate Scale
                 const targetScale = (fabricCanvas.width * 0.3) / img.width;
 
                 img.set({
@@ -1809,37 +1595,26 @@
                     originY: 'center',
                     scaleX: targetScale,
                     scaleY: targetScale,
-                    cornerColor: '#10b981', // Emerald 500
+                    cornerColor: '#10b981', 
                     cornerStyle: 'circle',
                     borderColor: '#10b981',
                     transparentCorners: false,
-                    
-                    // CUSTOM PROPERTIES
-                    isStamp: true,     // Tag it so we know it's a stamp
-                    rawSrc: dataUrl    // IMPORTANT: Keep original for re-processing
+                    isStamp: true,      
+                    rawSrc: dataUrl     
                 });
 
                 fabricCanvas.add(img);
                 fabricCanvas.setActiveObject(img);
-                
-                // Trigger initial cleanup with default value (150)
                 updateStampThreshold(150);
             });
         }
 
         function processAndAddStamp(rawImgSrc) {
-            // We no longer pre-process here. We pass the raw image to the canvas
-            // and let the slider logic handle the processing. 
-            // This ensures the slider always has the original data to work with.
             addStampImageToCanvas(rawImgSrc);
         }
 
-        // --- STAMP SLIDER LOGIC ---
-
-        // 1. Listen for selection events to Show/Hide slider
         function initFabricListeners() {
             if(!fabricCanvas) return;
-
             fabricCanvas.on('selection:created', (e) => checkSelection(e.selected[0]));
             fabricCanvas.on('selection:updated', (e) => checkSelection(e.selected[0]));
             fabricCanvas.on('selection:cleared', () => hideStampSlider());
@@ -1847,10 +1622,7 @@
 
         function checkSelection(obj) {
             if (obj && obj.isStamp) {
-                // It is a stamp, show the slider
                 document.getElementById('stamp-slider-container').classList.remove('hidden');
-                // Reset slider to a middle value or the last used value if we stored it
-                // document.getElementById('stamp-threshold').value = 150; 
             } else {
                 hideStampSlider();
             }
@@ -1860,7 +1632,6 @@
             document.getElementById('stamp-slider-container').classList.add('hidden');
         }
 
-        // 2. The Slider Function
         function updateStampThreshold(thresholdVal) {
             if (!fabricCanvas) return;
             const activeObj = fabricCanvas.getActiveObject();
@@ -1884,26 +1655,18 @@
                 const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                 const data = imgData.data;
 
-                // PIXEL MANIPULATION LOOP
                 for (let i = 0; i < data.length; i += 4) {
                     const r = data[i];
                     const g = data[i + 1];
                     const b = data[i + 2];
-                    
-                    // Calculate brightness
                     const brightness = (r + g + b) / 3;
 
                     if (brightness > threshold) {
-                        // If it is brighter than threshold, make it transparent
                         data[i + 3] = 0; 
                     } 
-                    // REMOVED THE 'ELSE' BLOCK
-                    // By doing nothing here, we keep the original R, G, B colors!
                 }
 
                 ctx.putImageData(imgData, 0, 0);
-                
-                // Update the fabric object
                 const newSrc = canvas.toDataURL();
                 activeObj.setSrc(newSrc, function() {
                     fabricCanvas.renderAll();
@@ -1914,13 +1677,11 @@
         function addTextToCanvas() {
             if (!fabricCanvas) return;
             
-            // Create a text object
-            // 'IText' allows the user to double-click and edit the text on canvas
             const text = new fabric.IText('Tap to Edit', {
                 left: fabricCanvas.width / 2,
                 top: fabricCanvas.height / 2,
                 fontFamily: 'Calibri',
-                fill: '#000000', // Bright red so it stands out
+                fill: '#000000', 
                 fontSize: 24,
                 fontWeight: 'bold',
                 originX: 'center',
@@ -1932,7 +1693,7 @@
             });
 
             fabricCanvas.add(text);
-            fabricCanvas.setActiveObject(text); // Select it immediately
+            fabricCanvas.setActiveObject(text); 
             fabricCanvas.renderAll();
         }
         
@@ -1966,10 +1727,8 @@
 
         function setupPasteListener() {
             document.addEventListener('paste', function(e) {
-                // 1. Check if we have a valid context (Job or specific view)
                 if (!currentJobId && document.getElementById('view-editor').classList.contains('hidden')) return;
 
-                // 2. extract the file
                 const items = (e.clipboardData || e.originalEvent.clipboardData).items;
                 let blob = null;
                 for (let i = 0; i < items.length; i++) {
@@ -1983,24 +1742,15 @@
                     reader.onload = function(event) { 
                         const editorView = document.getElementById('view-editor');
                         
-                        // === LOGIC BRANCH ===
                         if (!editorView.classList.contains('hidden')) {
-                            // A. Editor is OPEN -> Add as STAMP (Process background)
                             processAndAddStamp(event.target.result);
                         } else {
-                            // B. Editor is CLOSED -> Create NEW DOCUMENT
                             closeAddMenu(); 
                             closeScanner(); 
                             openEditor(event.target.result); 
                         }
                     };
                     reader.readAsDataURL(blob);
-                } else {
-                    // Feedback if user pastes non-image
-                    // Only show alert if we found items but no images (avoid alerting on text paste in inputs)
-                    if (items.length > 0 && items[0].kind === 'file') {
-                         alert("⚠️ Only Images are allowed.");
-                    }
                 }
             });
         }
@@ -2088,31 +1838,23 @@
             const category = categorySelect.value;
             const isSigned = document.getElementById('doc-signed-check').checked;
             
-            // UI Feedback
             const saveBtn = document.getElementById('btn-confirm-save');
             const originalBtnText = saveBtn.innerHTML;
             saveBtn.innerHTML = 'Saving...';
             saveBtn.disabled = true;
 
             try {
-                // 1. Get Current Image from Canvas
                 const finalMultiplier = 2; 
                 const currentDataURL = fabricCanvas.toDataURL({ format: 'webp', quality: 0.92, multiplier: finalMultiplier });
                 
-                // === LOGIC CHANGE FOR PDF VS SCAN ===
                 let finalSaveList = [];
                 
                 if (isPdfBatch) {
-                    // PDF Mode: Canvas is Page 1, Queue is Pages 2,3,4...
-                    // Order: [Current, ...Queue]
                     finalSaveList = [currentDataURL, ...batchQueue];
                 } else {
-                    // Scan Mode: Queue is Page 1,2, Canvas is Page 3
-                    // Order: [...Queue, Current]
                     finalSaveList = [...batchQueue, currentDataURL];
                 }
                 
-                // 2. Process the List
                 const totalPages = finalSaveList.length;
                 const baseId = Math.random().toString(36).substr(2, 4).toUpperCase();
 
@@ -2127,11 +1869,9 @@
                     await saveSingleDocument(dataUrl, category, isSigned, baseId, pageSuffix);
                 }
 
-                // 3. Cleanup & Close
                 isPdfBatch = false;
-                batchQueue = []; // Clear queue
+                batchQueue = []; 
                 
-                // Reset Add Menu Title
                 const title = document.querySelector('#add-menu-modal h3');
                 if(title) title.textContent = 'Add Document';
 
@@ -2140,12 +1880,10 @@
                 editingDocId = null;
                 document.getElementById('doc-signed-check').checked = false;
 
-                // Success Message
                 if (totalPages > 1) {
                     alert(`✅ Saved ${totalPages} pages successfully.`);
                 }
 
-                // Check Completion
                 const job = jobs.find(j => j.id === currentJobId);
                 const newStatus = getJobStatus(job);
                 if (newStatus === 'Completed') {
@@ -2161,25 +1899,19 @@
             }
         }
 
-        // --- NEW HELPER FUNCTION TO SAVE INDIVIDUAL DOCS ---
         async function saveSingleDocument(dataURL, category, isSigned, baseId, nameSuffix) {
             let finalDocId, finalDocName;
 
-            // Handle Editing vs New
             if (editingDocId && batchQueue.length === 1) {
-                // Single doc edit mode
                 finalDocId = editingDocId;
                 const job = jobs.find(j => j.id === currentJobId);
                 const existingDoc = job.documents.find(d => d.id === editingDocId);
                 finalDocName = existingDoc ? existingDoc.name : `${category}_${baseId}.webp`;
             } else {
-                // New or Batch
                 finalDocId = 'doc_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
-                // Clean name construction
                 finalDocName = `${category}_${baseId}${nameSuffix}.webp`;
             }
 
-            // Prepare Blob
             const blob = await (await fetch(dataURL)).blob();
             const arrayBuffer = await blob.arrayBuffer();
             const uint8Array = new Uint8Array(arrayBuffer);
@@ -2187,7 +1919,6 @@
             const sizeMb = (blob.size / (1024*1024)).toFixed(2);
             const sizeStr = sizeMb < 1 ? (blob.size/1024).toFixed(0) + 'KB' : sizeMb + 'MB';
 
-            // Create Metadata
             const newDoc = {
                 id: finalDocId, 
                 name: finalDocName,
@@ -2200,17 +1931,14 @@
                 isSigned: isSigned
             };
 
-            // Database Operations
             if (db) {
                 const cloudDocMetadata = { ...newDoc };
                 delete cloudDocMetadata.src; 
                 cloudDocMetadata.hasBinary = true; 
                 
-                // 1. Upload Binary
                 const scanData = { image_blob: firestoreBlob, timestamp: Date.now(), name: finalDocName };
                 await db.collection('jobs').doc(currentJobId).collection('scans').doc(finalDocId).set(scanData);
 
-                // 2. Update Job Index
                 if (editingDocId && batchQueue.length === 1) {
                     const jobRef = db.collection('jobs').doc(currentJobId);
                     const jobSnap = await jobRef.get();
@@ -2226,7 +1954,6 @@
                     });
                 }
             } else {
-                // Offline Mode
                 const job = jobs.find(j => j.id === currentJobId);
                 newDoc.src = dataURL;
                 if (editingDocId && batchQueue.length === 1) {
@@ -2244,21 +1971,16 @@
             renderJobs();
         }
 
-// --- 6. ARCHIVE & EXPORT FUNCTIONS (Add this block) ---
-
         async function archiveClosedJobs() {
-            // 1. Find completed jobs
             const jobsToArchive = jobs.filter(j => getJobStatus(j) === 'Completed');
             if (jobsToArchive.length === 0) return alert("No completed jobs to archive.");
 
-            // 2. Prepare data
             const archiveData = {
                 version: 1,
                 timestamp: Date.now(),
                 jobs: jobsToArchive
             };
 
-            // 3. Create file (CBOR is smaller, JSON is fallback)
             let blob, ext;
             if (typeof CBOR !== 'undefined') {
                 blob = new Blob([CBOR.encode(archiveData)], { type: 'application/cbor' });
@@ -2268,7 +1990,6 @@
                 ext = 'json';
             }
 
-            // 4. Trigger Download
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -2278,7 +1999,6 @@
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
 
-            // 5. Cleanup Database
             if (confirm(`Successfully downloaded archive of ${jobsToArchive.length} jobs.\n\nDelete them from the active list to free up space?`)) {
                 if(db) {
                     const batch = db.batch();
@@ -2288,7 +2008,6 @@
                     });
                     await batch.commit().catch(e => console.error(e));
                 }
-                // Update local list instantly
                 jobs = jobs.filter(j => getJobStatus(j) !== 'Completed');
                 renderJobs();
                 updateStorageUI();
@@ -2303,11 +2022,9 @@
             reader.onload = function(e) {
                 try {
                     let data;
-                    // Detect format based on extension or try both
                     if (file.name.endsWith('.json')) {
                         data = JSON.parse(e.target.result);
                     } else {
-                        // Assume CBOR
                         data = CBOR.decode(e.target.result);
                     }
                     
@@ -2339,7 +2056,6 @@
             const job = sourceList.find(j => j.id === currentJobId);
             if (!job || !job.documents.length) return alert("No documents to download.");
 
-            // Use jsPDF
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
             
@@ -2351,19 +2067,15 @@
             doc.text(`ID: ${job.id} | Date: ${job.date}`, 10, y);
             y += 10;
 
-            // Simple text list for now, or add images if needed
             job.documents.forEach((d, index) => {
                 doc.text(`${index + 1}. ${d.docCategory} - ${d.name}`, 10, y);
                 y += 7;
-                // Note: Adding actual images to PDF requires loading base64 data which is complex
-                // in this simple setup. This acts as a summary sheet.
             });
 
             doc.save(`${job.client}_Bundle.pdf`);
         }
 
         async function downloadSinglePDF(docId) {
-            // 1. Find Doc
             const sourceList = isViewingArchive ? archivedJobs : jobs;
             const job = sourceList.find(j => j.id === currentJobId);
             const doc = job.documents.find(d => d.id === docId);
@@ -2371,7 +2083,6 @@
 
             pendingDownloadDocId = docId;
 
-            // 2. Setup Modal UI
             const modal = document.getElementById('download-modal');
             const img = document.getElementById('download-preview-img');
             const input = document.getElementById('pdf-filename');
@@ -2380,17 +2091,13 @@
             modal.classList.remove('hidden');
             setTimeout(() => modal.classList.remove('opacity-0'), 10);
             
-            // 3. Reset State
             img.classList.add('opacity-0');
             img.src = '';
             loader.classList.remove('hidden');
             
-            // 4. PRE-FILL FILENAME (Updated Logic)
-            // Use the current document name, stripped of extension
             const cleanName = doc.name.replace(/\.[^/.]+$/, "");
             input.value = cleanName;
             
-            // Optional: If name is generic/empty, fallback to Category + Date
             if (!input.value || input.value.startsWith('scan_')) {
                  const dateStr = new Date().toISOString().slice(0,10);
                  input.value = `${doc.docCategory}_${dateStr}`;
@@ -2398,7 +2105,6 @@
 
             input.select(); 
 
-            // 5. Load Image
             const imgSrc = await ensureDocImageLoaded(job, doc);
             if(imgSrc) {
                 img.src = imgSrc;
@@ -2420,26 +2126,20 @@
         async function executePDFDownload() {
             if (!pendingDownloadDocId) return;
 
-            // 1. Get Data
             const sourceList = isViewingArchive ? archivedJobs : jobs;
             const job = sourceList.find(j => j.id === currentJobId);
             const doc = job.documents.find(d => d.id === pendingDownloadDocId);
             const filenameInput = document.getElementById('pdf-filename').value.trim();
             const finalFilename = (filenameInput || "document") + ".pdf";
 
-            // 2. Close Modal & Show Feedback
             closeDownloadModal();
             
-            // Optional: Show a toast or small loading indicator here
-            
             try {
-                // 3. Prepare Image
                 const imgSrc = await ensureDocImageLoaded(job, doc);
                 const img = new Image();
                 img.src = imgSrc;
                 await new Promise(r => img.onload = r);
 
-                // 4. Create Clean JPEG
                 const canvas = document.createElement('canvas');
                 canvas.width = img.width;
                 canvas.height = img.height;
@@ -2447,7 +2147,6 @@
                 ctx.drawImage(img, 0, 0);
                 const cleanDataURL = canvas.toDataURL('image/jpeg', 0.85);
 
-                // 5. Generate PDF
                 const { jsPDF } = window.jspdf;
                 const isLandscape = img.width > img.height;
                 const pdf = new jsPDF({
@@ -2475,9 +2174,8 @@
                 alert("Failed to generate PDF.");
             }
         }
-                // --- INIT CALL ---
+        
         window.onload = () => {
-            // Wait for Lucide script to parse
             const initUI = setInterval(() => {
                 if(typeof lucide !== 'undefined') {
                     lucide.createIcons();
@@ -2491,15 +2189,3 @@
     </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
