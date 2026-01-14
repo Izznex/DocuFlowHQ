@@ -2335,7 +2335,6 @@
             const category = categorySelect.value;
             
             // --- HANDLE SIGNED STATUS ---
-            // Since the checkbox is gone, we preserve the existing status.
             let isSigned = false;
             
             if (editingDocId && currentJobId) {
@@ -2372,8 +2371,16 @@
                     const dataUrl = finalSaveList[i];
                     let pageSuffix = totalPages > 1 ? ` (Page ${i + 1})` : "";
                     
-                    // Pass our calculated 'isSigned' variable
-                    await saveSingleDocument(dataUrl, category, isSigned, baseId, pageSuffix);
+                    // --- OVERWRITE LOGIC ---
+                    // We only overwrite the ID for the FIRST page (i === 0).
+                    // If you added extra pages to an existing doc, those get new IDs.
+                    let idToOverwrite = null;
+                    if (i === 0 && editingDocId) {
+                        idToOverwrite = editingDocId;
+                    }
+
+                    // Pass 'idToOverwrite' as the last argument to our updated function
+                    await saveSingleDocument(dataUrl, category, isSigned, baseId, pageSuffix, idToOverwrite);
                 }
 
                 // Cleanup
@@ -2389,6 +2396,13 @@
 
                 if (totalPages > 1) alert(`✅ Saved ${totalPages} pages successfully.`);
 
+                // Optional: Check job completion
+                const job = jobs.find(j => j.id === currentJobId);
+                const newStatus = getJobStatus(job);
+                if (newStatus === 'Completed') {
+                    setTimeout(() => alert("🎉 Job Completed! DO is signed."), 200);
+                }
+
             } catch (err) {
                 console.error("Save Error", err);
                 alert("Error saving document.");
@@ -2398,19 +2412,47 @@
             }
         }
 
-        async function saveSingleDocument(dataURL, category, isSigned, baseId, nameSuffix) {
+        async function saveSingleDocument(dataURL, category, isSigned, baseId, nameSuffix, overwriteId = null) {
             let finalDocId, finalDocName;
 
-            if (editingDocId && batchQueue.length === 1) {
-                finalDocId = editingDocId;
+            // 1. DETERMINE ID & NAME
+            if (overwriteId) {
+                // --- OVERWRITE MODE ---
+                finalDocId = overwriteId;
+                
+                // Find existing doc to see if we should keep its specific name
                 const job = jobs.find(j => j.id === currentJobId);
-                const existingDoc = job.documents.find(d => d.id === editingDocId);
-                finalDocName = existingDoc ? existingDoc.name : `${category}_${baseId}.webp`;
+                const existingDoc = job ? job.documents.find(d => d.id === overwriteId) : null;
+                
+                if (existingDoc && existingDoc.docCategory === category) {
+                     // If category hasn't changed, keep the old name exactly as is
+                     finalDocName = existingDoc.name;
+                } else {
+                     // If category changed, generate clean name: "Purchase Order.webp"
+                     // We don't need a random ID here because we are the active file.
+                     finalDocName = `${category}${nameSuffix}.webp`;
+                }
             } else {
+                // --- NEW FILE MODE ---
                 finalDocId = 'doc_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
-                finalDocName = `${category}_${baseId}${nameSuffix}.webp`;
+                
+                // Start with Clean Name: "Purchase Order.webp"
+                let candidateName = `${category}${nameSuffix}.webp`;
+                
+                // CHECK FOR DUPLICATES
+                // If "Purchase Order.webp" exists, try "Purchase Order (2).webp", etc.
+                const job = jobs.find(j => j.id === currentJobId);
+                if (job && job.documents) {
+                    let counter = 1;
+                    while (job.documents.some(d => d.name === candidateName)) {
+                        counter++;
+                        candidateName = `${category}${nameSuffix} (${counter}).webp`;
+                    }
+                }
+                finalDocName = candidateName;
             }
 
+            // 2. PREPARE BLOB (Standard logic)
             const blob = await (await fetch(dataURL)).blob();
             const arrayBuffer = await blob.arrayBuffer();
             const uint8Array = new Uint8Array(arrayBuffer);
@@ -2424,12 +2466,13 @@
                 docCategory: category,
                 type: 'scan',
                 size: sizeStr,
-                date: 'Just Now',
+                date: new Date().toISOString(),
                 ocrText: "", 
                 smartData: {}, 
                 isSigned: isSigned
             };
 
+            // 3. UPLOAD TO FIRESTORE
             if (db) {
                 const cloudDocMetadata = { ...newDoc };
                 delete cloudDocMetadata.src; 
@@ -2438,11 +2481,12 @@
                 const scanData = { image_blob: firestoreBlob, timestamp: Date.now(), name: finalDocName };
                 await db.collection('jobs').doc(currentJobId).collection('scans').doc(finalDocId).set(scanData);
 
-                if (editingDocId && batchQueue.length === 1) {
+                if (overwriteId) {
                     const jobRef = db.collection('jobs').doc(currentJobId);
                     const jobSnap = await jobRef.get();
-                    let currentDocs = jobSnap.data().documents;
-                    const idx = currentDocs.findIndex(d => d.id === editingDocId);
+                    let currentDocs = jobSnap.data().documents || [];
+                    
+                    const idx = currentDocs.findIndex(d => d.id === overwriteId);
                     if (idx !== -1) {
                         currentDocs[idx] = cloudDocMetadata; 
                         await jobRef.update({ documents: currentDocs });
@@ -2452,17 +2496,19 @@
                         documents: firebase.firestore.FieldValue.arrayUnion(cloudDocMetadata)
                     });
                 }
+            } 
+            
+            // 4. UPDATE LOCAL VIEW
+            const job = jobs.find(j => j.id === currentJobId);
+            newDoc.src = dataURL; 
+            
+            if (overwriteId) {
+                const idx = job.documents.findIndex(d => d.id === overwriteId);
+                if (idx !== -1) job.documents[idx] = newDoc;
             } else {
-                const job = jobs.find(j => j.id === currentJobId);
-                newDoc.src = dataURL;
-                if (editingDocId && batchQueue.length === 1) {
-                    const idx = job.documents.findIndex(d => d.id === editingDocId);
-                    if (idx !== -1) job.documents[idx] = newDoc;
-                } else {
-                    job.documents.push(newDoc);
-                }
-                renderJobs(); 
+                job.documents.push(newDoc);
             }
+            renderDocumentList(job);
         }
         
         function handleSearch() {
@@ -2688,6 +2734,7 @@
     </script>
 </body>
 </html>
+
 
 
 
