@@ -952,18 +952,6 @@
             return num;
         }
 
-        function calculateTotalUsage() {
-            let totalBytes = 0;
-            if(jobs) {
-                jobs.forEach(job => {
-                    if(job.documents) {
-                        job.documents.forEach(doc => { totalBytes += parseSizeToBytes(doc.size); });
-                    }
-                });
-            }
-            return totalBytes;
-        }
-
         function getJobStatus(job) {
             if(!job || !job.documents) return 'Open';
             const hasSignedDO = job.documents.some(d => d.docCategory === 'Delivery Order' && d.isSigned === true);
@@ -1043,23 +1031,51 @@
             }
         }
 
-        // --- 3. CORE UI FUNCTIONS ---
         function updateStorageUI() {
-            const totalBytes = calculateTotalUsage();
+            // 1. RECALCULATE BYTES (Explicitly ignoring Archived/Offline items)
+            let totalBytes = 0;
+        
+            if (typeof jobs !== 'undefined' && Array.isArray(jobs)) {
+                jobs.forEach(job => {
+                    // Safety: Skip if the job itself is marked archived
+                    if (job.isArchived) return; 
+        
+                    if (job.documents && Array.isArray(job.documents)) {
+                        job.documents.forEach(doc => {
+                            // CRITICAL FIX: Ignore documents marked 'isOffline'
+                            // These are the placeholders that still have a "size" property but take 0 cloud space
+                            if (!doc.isOffline) {
+                                totalBytes += (doc.size || 0);
+                            }
+                        });
+                    }
+                });
+            }
+        
+            // 2. UI UPDATES (Standard Logic)
             const usedMB = (totalBytes / (1024 * 1024)).toFixed(1);
-            const percentage = Math.min((usedMB / STORAGE_LIMIT_MB) * 100, 100);
-
+            
+            // Ensure STORAGE_LIMIT_MB is defined (fallback to 100MB if missing)
+            const limit = (typeof STORAGE_LIMIT_MB !== 'undefined') ? STORAGE_LIMIT_MB : 100;
+            const percentage = Math.min((usedMB / limit) * 100, 100);
+        
             const textEl = document.getElementById('storage-text');
-            if(textEl) textEl.textContent = `${usedMB} MB / ${STORAGE_LIMIT_MB} MB`;
+            if(textEl) textEl.textContent = `${usedMB} MB / ${limit} MB`;
             
             const bar = document.getElementById('storage-bar');
             if(bar) {
                 bar.style.width = `${percentage}%`;
-                if(percentage > 90) { bar.className = "h-full bg-red-500 w-0 transition-all duration-500"; }
-                else if (percentage > 70) { bar.className = "h-full bg-yellow-500 w-0 transition-all duration-500"; }
-                else { bar.className = "h-full bg-emerald-500 w-0 transition-all duration-500"; }
+                
+                // Removed 'w-0' from classes to prevent conflict with style.width
+                if(percentage > 90) { 
+                    bar.className = "h-full bg-red-500 transition-all duration-500"; 
+                } else if (percentage > 70) { 
+                    bar.className = "h-full bg-yellow-500 transition-all duration-500"; 
+                } else { 
+                    bar.className = "h-full bg-emerald-500 transition-all duration-500"; 
+                }
             }
-
+        
             const alertBox = document.getElementById('archive-alert');
             if(alertBox) {
                 if(percentage >= 80) { 
@@ -3479,6 +3495,7 @@
     </script>
 </body>
 </html>
+
 
 
 
