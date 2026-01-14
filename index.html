@@ -1032,20 +1032,21 @@
         }
 
         function getSafeDocSize(doc) {
-            // 1. If it's a string (Base64), use length (Overestimates ~33%, safest)
+            // 1. If it's a string (Base64 - e.g. just scanned), use length 
+            // (This works because Base64 is larger than binary, so it's a safe overestimate)
             if (doc.src && typeof doc.src === 'string') {
                 return doc.src.length;
             }
         
-            // 2. If it's binary (Archive restore), use byte length
+            // 2. If it's binary (e.g. Restored from Archive), use byte length
             if (doc.src && (doc.src instanceof Uint8Array || doc.src instanceof ArrayBuffer)) {
                 return doc.src.byteLength;
             }
         
-            // 3. Fallback to stored size property
+            // 3. Fallback to stored size property (Standard Database Load)
             if (doc.size) {
-                const parsed = parseFloat(doc.size);
-                if (!isNaN(parsed)) return parsed;
+                // FIX: Use the helper to convert "500KB" -> 512000 bytes
+                return parseSizeToBytes(doc.size); 
             }
         
             return 0;
@@ -3517,6 +3518,7 @@
     </script>
 </body>
 </html>
+
 
 
 
