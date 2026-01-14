@@ -1480,11 +1480,14 @@
             // Draw Handles
             cropPoints.forEach((p, i) => {
                 const isActive = (i === activePointIndex);
+                
+                // Outer Glow
                 ctx.beginPath();
                 ctx.arc(p.x, p.y, 30, 0, Math.PI * 2); 
                 ctx.fillStyle = 'rgba(16, 185, 129, 0.2)'; 
                 ctx.fill();
 
+                // Inner Handle
                 ctx.beginPath();
                 ctx.arc(p.x, p.y, 10, 0, Math.PI * 2); 
                 ctx.fillStyle = isActive ? '#34d399' : '#10b981'; 
@@ -1494,49 +1497,48 @@
                 ctx.stroke();
             });
             
-            // --- 5. SMART MAGNIFIER (Updated) ---
+            // --- 5. FIXED CORNER MAGNIFIER (The New Feature) ---
             if(activePointIndex !== -1 && cropImgElement) {
-                const p = cropPoints[activePointIndex];
+                const p = cropPoints[activePointIndex]; // The point we are dragging
                 
                 // Config
-                const zoom = 2.5;
-                const size = 140;   // Bigger bubble (was 120)
-                const dist = 120;   // Distance from finger (was 80)
+                const size = 120;     // Size of the square preview box
+                const margin = 20;    // Margin from the screen edge
+                const zoom = 2.5;     // Zoom level
                 
-                // A. Smart Vertical Positioning (Flip if near top)
-                // If point is within top 150px, show bubble BELOW finger.
-                let magY = p.y - dist; 
-                if (p.y < 150) {
-                    magY = p.y + dist;
+                // 1. Determine Position (Corner Swap Logic)
+                // Default: Top-Left
+                let previewX = margin;
+                let previewY = margin;
+
+                // Check if finger is in the Top-Left quadrant
+                // If we are dragging near the Top-Left, move preview to Top-Right
+                // so the box doesn't cover the point we are trying to see.
+                if (p.x < (cropCanvas.width / 2) && p.y < (cropCanvas.height / 2)) {
+                    previewX = cropCanvas.width - size - margin;
                 }
 
-                // B. Smart Horizontal Positioning (Clamp to edges)
-                // Don't let the bubble go off the left or right side
-                let magX = p.x;
-                const minX = size / 2 + 10;
-                const maxX = cropCanvas.width - (size / 2) - 10;
-                magX = Math.max(minX, Math.min(maxX, magX));
-
-                // Draw Container
+                // 2. Draw Preview Container (Square Box)
                 ctx.save();
                 ctx.beginPath();
-                ctx.arc(magX, magY, size / 2, 0, Math.PI * 2);
-                ctx.fillStyle = 'white';
+                // Draw a rounded rectangle for style
+                ctx.roundRect(previewX, previewY, size, size, 12);
+                ctx.fillStyle = '#1f2937'; // Dark Gray bg
                 ctx.fill();
                 ctx.strokeStyle = 'white';
-                ctx.lineWidth = 4;
+                ctx.lineWidth = 3;
                 ctx.stroke();
                 
-                // Shadow
+                // Add Shadow
                 ctx.shadowColor = 'rgba(0,0,0,0.5)';
-                ctx.shadowBlur = 20;
+                ctx.shadowBlur = 15;
                 ctx.stroke();
                 ctx.shadowBlur = 0;
-                
-                // Clip content
+
+                // Clip area for image
                 ctx.clip();
 
-                // Draw Zoomed Image
+                // 3. Draw Zoomed Image
                 const imgRatioX = cropImgElement.naturalWidth / cropCanvas.width;
                 const imgRatioY = cropImgElement.naturalHeight / cropCanvas.height;
 
@@ -1549,28 +1551,28 @@
                      ctx.drawImage(
                         cropImgElement, 
                         sX, sY, sW, sH, 
-                        magX - size/2, magY - size/2, size, size
+                        previewX, previewY, size, size
                     );
                 }
 
-                // Draw Precision Crosshair
-                // We use contrasting colors (Red + White) so it's visible on any background
-                ctx.lineWidth = 1;
-                
-                // White outer line
-                ctx.strokeStyle = 'rgba(255,255,255,0.8)';
-                ctx.beginPath();
-                ctx.moveTo(magX, magY - (size/2)); ctx.lineTo(magX, magY + (size/2));
-                ctx.moveTo(magX - (size/2), magY); ctx.lineTo(magX + (size/2), magY);
-                ctx.stroke();
+                // 4. Draw Crosshair (Fixed in Center of Preview Box)
+                const cx = previewX + size/2;
+                const cy = previewY + size/2;
 
-                // Red inner line (High visibility)
-                ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+                ctx.strokeStyle = '#10b981'; // Emerald Green Crosshair
+                ctx.lineWidth = 2;
                 ctx.beginPath();
-                // Shorter crosshair for precision
-                ctx.moveTo(magX, magY - 10); ctx.lineTo(magX, magY + 10);
-                ctx.moveTo(magX - 10, magY); ctx.lineTo(magX + 10, magY);
+                
+                // Full crosshair
+                ctx.moveTo(cx, previewY); ctx.lineTo(cx, previewY + size);
+                ctx.moveTo(previewX, cy); ctx.lineTo(previewX + size, cy);
                 ctx.stroke();
+                
+                // Add a small red dot in the exact center for precision
+                ctx.beginPath();
+                ctx.arc(cx, cy, 2, 0, Math.PI*2);
+                ctx.fillStyle = 'red';
+                ctx.fill();
 
                 ctx.restore();
             }
@@ -1973,12 +1975,83 @@
         }
 
         function initFabricListeners() {
-            if(!fabricCanvas) return;
-            fabricCanvas.on('selection:created', (e) => checkSelection(e.selected[0]));
-            fabricCanvas.on('selection:updated', (e) => checkSelection(e.selected[0]));
-            fabricCanvas.on('selection:cleared', () => hideStampSlider());
-        }
+            if (!fabricCanvas) return;
 
+            // Helper to handle showing the slider
+            const handleSelection = (e) => {
+                const activeObj = e.selected ? e.selected[0] : e.target;
+                
+                // Only show for images (stamps) that aren't the background
+                if (activeObj && activeObj.type === 'image' && activeObj !== fabricCanvas.backgroundImage) {
+                    
+                    // 1. Show the settings UI
+                    // If you have a dedicated function for this, call it. 
+                    // Otherwise, manually unhide your specific container.
+                    if (typeof showStampSettings === 'function') {
+                        showStampSettings(activeObj);
+                    } else {
+                        const slider = document.getElementById('stamp-slider-container');
+                        if (slider) slider.classList.remove('hidden');
+                    }
+                }
+            };
+
+            // 1. Selection Events (Show Slider)
+            fabricCanvas.on('selection:created', handleSelection);
+            fabricCanvas.on('selection:updated', handleSelection);
+
+            // 2. Deselection Event (Hide & Reset Slider)
+            fabricCanvas.on('selection:cleared', () => {
+                // If you have a hideStampSettings function, call it.
+                if (typeof hideStampSettings === 'function') {
+                    hideStampSettings();
+                } else {
+                    const slider = document.getElementById('stamp-slider-container');
+                    if (slider) {
+                        slider.classList.add('hidden');
+                        // RESET POSITION: Always put it back at the bottom when done
+                        slider.classList.remove('top-24');
+                        slider.classList.add('bottom-36');
+                    }
+                }
+            });
+
+            // 3. Object Moving Event (THE DODGE LOGIC)
+            fabricCanvas.on('object:moving', (e) => {
+                const obj = e.target;
+                const slider = document.getElementById('stamp-slider-container');
+                
+                // Only "dodge" if the slider is currently visible
+                if (slider && !slider.classList.contains('hidden')) {
+                    
+                    const canvasHeight = fabricCanvas.getHeight();
+                    
+                    // Calculate the physical bottom edge of the dragging stamp
+                    // (obj.top is the center Y because originY is usually 'center')
+                    const objBottomEdge = obj.top + (obj.getScaledHeight() / 2);
+                    
+                    // Threshold: If stamp is in the bottom 35% of the screen
+                    const threshold = canvasHeight * 0.65;
+
+                    if (objBottomEdge > threshold) {
+                        // --- DODGE: MOVE TO TOP ---
+                        // If it's currently at the bottom, move it up
+                        if (slider.classList.contains('bottom-36')) {
+                            slider.classList.remove('bottom-36');
+                            slider.classList.add('top-24'); 
+                        }
+                    } else {
+                        // --- RESTORE: MOVE TO BOTTOM ---
+                        // If it's currently at the top, move it back down
+                        if (slider.classList.contains('top-24')) {
+                            slider.classList.remove('top-24');
+                            slider.classList.add('bottom-36'); 
+                        }
+                    }
+                }
+            });
+        }
+        
         function checkSelection(obj) {
             if (obj && obj.isStamp) {
                 document.getElementById('stamp-slider-container').classList.remove('hidden');
@@ -2578,6 +2651,7 @@
     </script>
 </body>
 </html>
+
 
 
 
