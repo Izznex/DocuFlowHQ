@@ -1033,10 +1033,8 @@
 
         function updateStorageUI() {
             // 1. SAFE LIMIT DEFINITION
-            // Use the global variable if it exists, otherwise default to 100MB
             const limitMB = (typeof STORAGE_LIMIT_MB !== 'undefined' && !isNaN(STORAGE_LIMIT_MB)) ? STORAGE_LIMIT_MB : 100;
             
-            // 2. SAFE BYTE CALCULATION
             let totalBytes = 0;
         
             if (typeof jobs !== 'undefined' && Array.isArray(jobs)) {
@@ -1048,10 +1046,38 @@
                             // Skip offline placeholders
                             if (doc.isOffline) return;
         
-                            // Force convert size to a number. If missing/invalid, treat as 0.
-                            const size = parseFloat(doc.size);
+                            // A. Try to get the stored size property first
+                            let size = parseFloat(doc.size);
                             
-                            if (!isNaN(size)) {
+                            // B. FALLBACK: Calculate size based on data type if stored size is missing
+                            if ((isNaN(size) || size === 0) && doc.src) {
+                                
+                                // Case 1: Raw Binary (Uint8Array) - From Archives
+                                if (doc.src instanceof Uint8Array || doc.src instanceof ArrayBuffer) {
+                                    size = doc.src.byteLength;
+                                }
+                                // Case 2: Blob Object - From Fresh Scans (sometimes)
+                                else if (doc.src instanceof Blob) {
+                                    size = doc.src.size;
+                                }
+                                // Case 3: Strings
+                                else if (typeof doc.src === 'string') {
+                                    if (doc.src.startsWith('data:')) {
+                                        // Base64 Data URI: Needs the 0.75 correction
+                                        const base64Length = doc.src.length;
+                                        const padding = (doc.src.endsWith('==')) ? 2 : (doc.src.endsWith('=')) ? 1 : 0;
+                                        size = (base64Length * 0.75) - padding;
+                                    } else {
+                                        // 'blob:' URL: Impossible to calculate synchronously.
+                                        // We rely on doc.size being saved during creation.
+                                        // If missing, we count 0 to prevent UI errors.
+                                        size = 0; 
+                                    }
+                                }
+                            }
+                            
+                            // C. Add to total
+                            if (!isNaN(size) && size > 0) {
                                 totalBytes += size;
                             }
                         });
@@ -1059,53 +1085,40 @@
                 });
             }
         
-            // 3. SAFE MATH (Prevents NaN)
+            // 3. SAFE MATH
             const usedMB = totalBytes / (1024 * 1024);
             
-            // Calculate percentage safely
+            // Percentage Calculation
             let percentage = 0;
             if (limitMB > 0) {
                 percentage = (usedMB / limitMB) * 100;
             }
-            
-            // Clamp percentage between 0 and 100
             percentage = Math.min(100, Math.max(0, percentage));
         
             // 4. UI UPDATES
             const textEl = document.getElementById('storage-text');
             if(textEl) {
-                // .toFixed(1) makes it "5.2" instead of "5.23481..."
                 textEl.textContent = `${usedMB.toFixed(1)} MB / ${limitMB} MB`;
             }
             
             const bar = document.getElementById('storage-bar');
             if(bar) {
                 bar.style.width = `${percentage}%`;
-                
-                // Reset classes first
                 bar.className = "h-full transition-all duration-500";
                 
-                // Apply color based on usage
-                if(percentage > 90) { 
-                    bar.classList.add('bg-red-500'); 
-                } else if (percentage > 70) { 
-                    bar.classList.add('bg-yellow-500'); 
-                } else { 
-                    bar.classList.add('bg-emerald-500'); 
-                }
+                if(percentage > 90) bar.classList.add('bg-red-500'); 
+                else if (percentage > 70) bar.classList.add('bg-yellow-500'); 
+                else bar.classList.add('bg-emerald-500'); 
             }
-        
+            
             // 5. ALERT BOX
             const alertBox = document.getElementById('archive-alert');
             if(alertBox) {
-                if(percentage >= 80) { 
-                    alertBox.classList.remove('hidden'); 
-                } else { 
-                    alertBox.classList.add('hidden'); 
-                }
+                if(percentage >= 80) alertBox.classList.remove('hidden'); 
+                else alertBox.classList.add('hidden'); 
             }
         }
-
+        
         function renderJobs() {
             const container = document.getElementById('job-container');
             let dataSource = jobs;
@@ -3515,6 +3528,7 @@
     </script>
 </body>
 </html>
+
 
 
 
