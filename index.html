@@ -87,17 +87,17 @@
         </div>
         <div class="flex gap-2">
             
-            <button id="btn-invite-user" onclick="copyInviteLink()" class="hidden text-xs bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500 hover:text-white px-3 py-1.5 rounded-full border border-indigo-500/30 flex items-center gap-1 active:scale-95 transition-all" title="Invite New User">
-                <i data-lucide="user-plus" class="w-3 h-3"></i> Invite
+            <button id="btn-team-manager" onclick="openInviteModal()" class="hidden text-xs bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500 hover:text-white px-3 py-1.5 rounded-full border border-indigo-500/30 flex items-center gap-1 active:scale-95 transition-all" title="Manage Team & Invites">
+                <i data-lucide="users" class="w-3 h-3"></i> Team
             </button>
-
+    
             <input type="file" id="archive-upload" accept=".cbor,.json" class="hidden" onchange="handleArchiveUpload(this)">
             <button onclick="document.getElementById('archive-upload').click()" class="text-xs bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-full border border-gray-700 text-gray-400 flex items-center gap-1 active:scale-95 transition-transform">
                 <i data-lucide="archive-restore" class="w-3 h-3"></i> Archive
             </button>
-
+    
             <button onclick="logout()" class="text-xs bg-red-900/20 hover:bg-red-900/50 text-red-400 px-3 py-1.5 rounded-full border border-red-900/30 flex items-center gap-1 active:scale-95 transition-transform">
-                 <i data-lucide="log-out" class="w-3 h-3"></i>
+                    <i data-lucide="log-out" class="w-3 h-3"></i>
             </button>
         </div>
     </header>
@@ -661,44 +661,39 @@
         }
         
         function enterApp() {
-    console.log("🚀 Entering App...");
-
-    // Helper function to safely hide elements without crashing
-    const safeHide = (id) => {
-        const el = document.getElementById(id);
-        if (el) el.classList.add('hidden');
-    };
-
-    // 1. SAFELY HIDE All Overlays
-    safeHide('view-auth');
-    safeHide('view-scanner');
-    safeHide('view-crop');
-    safeHide('add-menu-modal');
-    safeHide('view-intro'); // Just in case you use this later
-
-    // 2. SHOW Main App Components
-    const appHeader = document.getElementById('app-header');
-    const viewJobs = document.getElementById('view-jobs');
-    
-    // Ensure these exist before removing 'hidden'
-    if (appHeader) appHeader.classList.remove('hidden');
-    if (viewJobs) viewJobs.classList.remove('hidden');
-
-    // 3. Setup UI based on Role
-    if (typeof userRole !== 'undefined' && userRole === 'admin') {
-        const inviteBtn = document.getElementById('btn-invite-user');
-        if (inviteBtn) inviteBtn.classList.remove('hidden');
-    }
-    
-   // 4. Load Data
-    // FIX: The function name is 'loadJobsFromFirestore', not 'loadJobs'
-    if (typeof loadJobsFromFirestore === 'function') {
-        console.log("📂 Starting Data Sync...");
-        loadJobsFromFirestore();
-    } else {
-        console.error("⚠️ Data loading function not found!");
-    }
-}
+            console.log("🚀 Entering App...");
+        
+            // Helper to safely hide elements
+            const safeHide = (id) => {
+                const el = document.getElementById(id);
+                if (el) el.classList.add('hidden');
+            };
+        
+            // 1. SAFELY HIDE All Overlays
+            safeHide('view-auth');
+            safeHide('view-scanner');
+            safeHide('view-crop');
+            safeHide('add-menu-modal');
+            safeHide('invite-modal'); // <--- Make sure the new modal is hidden too
+        
+            // 2. SHOW Main App Components
+            const appHeader = document.getElementById('app-header');
+            const viewJobs = document.getElementById('view-jobs');
+        
+            if (appHeader) appHeader.classList.remove('hidden');
+            if (viewJobs) viewJobs.classList.remove('hidden');
+        
+            // 3. ADMIN CHECK: Show Team Button
+            if (typeof userRole !== 'undefined' && userRole === 'admin') {
+                const teamBtn = document.getElementById('btn-team-manager');
+                if (teamBtn) teamBtn.classList.remove('hidden');
+            }
+        
+            // 4. Load Data
+            if (typeof loadJobsFromFirestore === 'function') {
+                loadJobsFromFirestore();
+            }
+        }
 
         function copyInviteLink() {
             // Current URL + ?mode=signup
@@ -3007,6 +3002,7 @@
     </script>
 </body>
 </html>
+
 
 
 
