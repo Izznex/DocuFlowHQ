@@ -1266,7 +1266,25 @@
 
             cropImgElement.src = imageSrc;
             
+            // Wait for image layout to calculate positions
             cropImgElement.onload = () => {
+                // MATCH CANVAS TO IMAGE
+                // This ensures the drawing layer is exactly the same size as the visible image
+                // preventing "ghost touches" caused by empty space/padding.
+                const rect = cropImgElement.getBoundingClientRect();
+                
+                // Set internal resolution to match the capture resolution for sharpness
+                // OR match the screen resolution for performance.
+                // Here we match the visual size x Device Pixel Ratio for crisp lines
+                const dpr = window.devicePixelRatio || 1;
+                cropCanvas.width = rect.width * dpr;
+                cropCanvas.height = rect.height * dpr;
+                
+                // Force CSS to match
+                cropCanvas.style.width = rect.width + 'px';
+                cropCanvas.style.height = rect.height + 'px';
+                
+                // Initialize points relative to this new canvas size
                 initCropPoints(detectedCorners);
                 renderCropUI();
                 initCropListeners();
@@ -1279,30 +1297,32 @@
         }
 
         function initCropPoints(autoCorners) {
-            const rect = cropImgElement.getBoundingClientRect();
-            const canvas = cropCanvas;
-            canvas.width = rect.width;
-            canvas.height = rect.height;
+            const w = cropCanvas.width;
+            const h = cropCanvas.height;
             
-            const padding = 40;
-            const w = canvas.width;
-            const h = canvas.height;
+            // Use 15% padding so corners aren't stuck to the edge
+            const padX = w * 0.15;
+            const padY = h * 0.15;
             
             cropPoints = [
-                { x: padding, y: padding },             
-                { x: w - padding, y: padding },         
-                { x: w - padding, y: h - padding },     
-                { x: padding, y: h - padding }          
+                { x: padX, y: padY },             // TL
+                { x: w - padX, y: padY },         // TR
+                { x: w - padX, y: h - padY },     // BR
+                { x: padX, y: h - padY }          // BL
             ];
         }
 
         function renderCropUI() {
             const ctx = cropCanvas.getContext('2d');
+            
+            // Clear previous frame
             ctx.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
             
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            // 1. Draw Mask (Darken the area OUTSIDE the crop)
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'; 
             ctx.fillRect(0, 0, cropCanvas.width, cropCanvas.height);
             
+            // Cut "hole" in the mask
             ctx.save();
             ctx.globalCompositeOperation = 'destination-out';
             ctx.beginPath();
@@ -1314,9 +1334,10 @@
             ctx.fill();
             ctx.restore();
 
+            // 2. Draw Connecting Lines
             ctx.beginPath();
-            ctx.strokeStyle = '#10b981'; 
-            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#10b981'; // Emerald 500
+            ctx.lineWidth = 3;
             ctx.moveTo(cropPoints[0].x, cropPoints[0].y);
             ctx.lineTo(cropPoints[1].x, cropPoints[1].y);
             ctx.lineTo(cropPoints[2].x, cropPoints[2].y);
@@ -1324,22 +1345,94 @@
             ctx.closePath();
             ctx.stroke();
 
-            cropPoints.forEach(p => {
+            // 3. Draw Corner Handles
+            cropPoints.forEach((p, i) => {
+                const isActive = (i === activePointIndex);
+                
+                // Outer Glow (Touch Area)
                 ctx.beginPath();
-                ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
-                ctx.fillStyle = '#10b981';
+                ctx.arc(p.x, p.y, 30, 0, Math.PI * 2); // Large touch target visual
+                ctx.fillStyle = 'rgba(16, 185, 129, 0.2)'; 
+                ctx.fill();
+
+                // Inner Solid Handle
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 10, 0, Math.PI * 2); 
+                ctx.fillStyle = isActive ? '#34d399' : '#10b981'; 
                 ctx.fill();
                 ctx.strokeStyle = 'white';
                 ctx.lineWidth = 2;
                 ctx.stroke();
             });
             
-            if(activePointIndex !== -1) {
+            // --- 5. MAGNIFIER (The New Feature) ---
+            // Only show when the user is actively dragging a point
+            if(activePointIndex !== -1 && cropImgElement) {
                 const p = cropPoints[activePointIndex];
+                
+                // Settings
+                const zoom = 2.5;          // How much to zoom in
+                const size = 120;          // Diameter of the magnifier circle
+                const offset = 80;         // How far ABOVE the finger to float
+                
+                // Calculate position (Floating above finger)
+                const magX = p.x;
+                const magY = p.y - offset;
+
+                // --- A. Draw Magnifier Container (Circle) ---
+                ctx.save();
                 ctx.beginPath();
-                ctx.arc(p.x, p.y, 20, 0, Math.PI * 2); 
-                ctx.fillStyle = 'rgba(16, 185, 129, 0.4)';
+                ctx.arc(magX, magY, size / 2, 0, Math.PI * 2);
+                ctx.fillStyle = 'white'; // Fill background to hide lines behind it
                 ctx.fill();
+                ctx.strokeStyle = 'white';
+                ctx.lineWidth = 4;
+                ctx.stroke();
+                
+                // Apply shadowing for pop-out effect
+                ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                ctx.shadowBlur = 15;
+                ctx.stroke();
+                ctx.shadowBlur = 0; // Reset shadow
+                
+                // Clip! Anything drawn after this only appears inside the circle
+                ctx.clip();
+
+                // --- B. Draw the Zoomed Image ---
+                // We map the Canvas Point (p.x, p.y) to the actual Image Pixel
+                const imgRatioX = cropImgElement.naturalWidth / cropCanvas.width;
+                const imgRatioY = cropImgElement.naturalHeight / cropCanvas.height;
+
+                // Calculate which part of the source image to grab
+                // Source Width = Magnifier Size / Zoom Level
+                const sW = size / zoom * imgRatioX;
+                const sH = size / zoom * imgRatioY;
+                const sX = (p.x * imgRatioX) - (sW / 2);
+                const sY = (p.y * imgRatioY) - (sH / 2);
+
+                // Draw it into the magnifier circle
+                // We draw from cropImgElement to get High-Res pixels, not blurry canvas pixels
+                ctx.drawImage(
+                    cropImgElement, 
+                    sX, sY, sW, sH,             // Source (High Res Image)
+                    magX - size/2, magY - size/2, size, size // Destination (Magnifier Bubble)
+                );
+
+                // --- C. Draw Crosshair (Precision Aim) ---
+                ctx.strokeStyle = '#10b981'; // Emerald
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                
+                // Vertical Line
+                ctx.moveTo(magX, magY - (size/2));
+                ctx.lineTo(magX, magY + (size/2));
+                
+                // Horizontal Line
+                ctx.moveTo(magX - (size/2), magY);
+                ctx.lineTo(magX + (size/2), magY);
+                
+                ctx.stroke();
+                ctx.restore(); // Stop Clipping
             }
         }
 
@@ -1347,42 +1440,83 @@
             const canvas = cropCanvas;
             
             const getPos = (e) => {
+                // 1. Get the visual size and position of the canvas on screen
                 const rect = canvas.getBoundingClientRect();
-                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-                return { x: clientX - rect.left, y: clientY - rect.top };
+                
+                // 2. Handle Touch vs Mouse
+                // Note: e.touches is for 'start/move', e.changedTouches is for 'end'
+                const clientX = e.touches ? (e.touches[0] ? e.touches[0].clientX : e.changedTouches[0].clientX) : e.clientX;
+                const clientY = e.touches ? (e.touches[0] ? e.touches[0].clientY : e.changedTouches[0].clientY) : e.clientY;
+                
+                // 3. THE FIX: Calculate the scaling factor
+                // (Internal Canvas Size / Visual CSS Size)
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+
+                // 4. Return the corrected coordinates
+                return { 
+                    x: (clientX - rect.left) * scaleX, 
+                    y: (clientY - rect.top) * scaleY 
+                };
             };
 
             const onStart = (e) => {
                 const { x, y } = getPos(e);
-                let minDist = 40; 
-                activePointIndex = -1;
                 
+                // Hit Radius needs to be scaled too if the image is huge
+                // We use a base radius of 40, adjusted by the scale
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / rect.width;
+                const HIT_RADIUS = 50 * scaleX; 
+
+                let minDistance = 9999;
+                let foundIndex = -1;
+
                 cropPoints.forEach((p, i) => {
                     const dist = Math.hypot(p.x - x, p.y - y);
-                    if (dist < minDist) {
-                        minDist = dist;
-                        activePointIndex = i;
+                    if (dist < HIT_RADIUS && dist < minDistance) {
+                        minDistance = dist;
+                        foundIndex = i;
                     }
                 });
                 
-                if (activePointIndex !== -1) renderCropUI();
+                activePointIndex = foundIndex;
+                
+                if (activePointIndex !== -1) {
+                    // Important: Stop browser scrolling while dragging a point
+                    if(e.cancelable) e.preventDefault(); 
+                    renderCropUI();
+                }
             };
 
             const onMove = (e) => {
                 if (activePointIndex === -1) return;
-                e.preventDefault();
+                
+                if(e.cancelable) e.preventDefault();
+                
                 const { x, y } = getPos(e);
-                cropPoints[activePointIndex].x = Math.max(0, Math.min(cropCanvas.width, x));
-                cropPoints[activePointIndex].y = Math.max(0, Math.min(cropCanvas.height, y));
+                
+                // Keep point inside canvas bounds
+                const padding = 10;
+                cropPoints[activePointIndex].x = Math.max(padding, Math.min(cropCanvas.width - padding, x));
+                cropPoints[activePointIndex].y = Math.max(padding, Math.min(cropCanvas.height - padding, y));
+                
                 renderCropUI();
             };
 
-            const onEnd = () => { activePointIndex = -1; renderCropUI(); };
+            const onEnd = (e) => { 
+                if (activePointIndex !== -1 && e.cancelable) {
+                    e.preventDefault();
+                }
+                activePointIndex = -1; 
+                renderCropUI(); 
+            };
 
+            // Use { passive: false } to allow us to stop scrolling
             canvas.addEventListener('touchstart', onStart, { passive: false });
             canvas.addEventListener('touchmove', onMove, { passive: false });
-            canvas.addEventListener('touchend', onEnd);
+            canvas.addEventListener('touchend', onEnd, { passive: false });
+            
             canvas.addEventListener('mousedown', onStart);
             canvas.addEventListener('mousemove', onMove);
             canvas.addEventListener('mouseup', onEnd);
@@ -2247,6 +2381,7 @@
     </script>
 </body>
 </html>
+
 
 
 
