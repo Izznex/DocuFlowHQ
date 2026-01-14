@@ -1977,76 +1977,64 @@
         function initFabricListeners() {
             if (!fabricCanvas) return;
 
-            // Helper to handle showing the slider
+            const slider = document.getElementById('stamp-slider-container');
+
+            // --- REUSABLE HELPER: Decide Position (Top vs Bottom) ---
+            const updateSliderPosition = (obj) => {
+                if (!slider || !obj) return;
+                
+                const canvasHeight = fabricCanvas.getHeight();
+                const objBottomEdge = obj.top + (obj.getScaledHeight() / 2);
+                const threshold = canvasHeight * 0.65; // Bottom 35% of screen
+
+                if (objBottomEdge > threshold) {
+                    // Stamp is low -> Move slider to TOP
+                    slider.classList.remove('bottom-36');
+                    slider.classList.add('top-24');
+                } else {
+                    // Stamp is high -> Move slider to BOTTOM
+                    slider.classList.remove('top-24');
+                    slider.classList.add('bottom-36');
+                }
+            };
+
+            // 1. Selection Event (Show Slider)
             const handleSelection = (e) => {
                 const activeObj = e.selected ? e.selected[0] : e.target;
                 
-                // Only show for images (stamps) that aren't the background
                 if (activeObj && activeObj.type === 'image' && activeObj !== fabricCanvas.backgroundImage) {
+                    // A. Check position FIRST (Dodge immediately if needed)
+                    updateSliderPosition(activeObj);
                     
-                    // 1. Show the settings UI
-                    // If you have a dedicated function for this, call it. 
-                    // Otherwise, manually unhide your specific container.
+                    // B. Then show the slider
                     if (typeof showStampSettings === 'function') {
                         showStampSettings(activeObj);
                     } else {
-                        const slider = document.getElementById('stamp-slider-container');
                         if (slider) slider.classList.remove('hidden');
                     }
                 }
             };
 
-            // 1. Selection Events (Show Slider)
             fabricCanvas.on('selection:created', handleSelection);
             fabricCanvas.on('selection:updated', handleSelection);
 
-            // 2. Deselection Event (Hide & Reset Slider)
-            fabricCanvas.on('selection:cleared', () => {
-                // If you have a hideStampSettings function, call it.
-                if (typeof hideStampSettings === 'function') {
-                    hideStampSettings();
-                } else {
-                    const slider = document.getElementById('stamp-slider-container');
-                    if (slider) {
-                        slider.classList.add('hidden');
-                        // RESET POSITION: Always put it back at the bottom when done
-                        slider.classList.remove('top-24');
-                        slider.classList.add('bottom-36');
-                    }
+            // 2. Moving Event (Continuous Dodge)
+            fabricCanvas.on('object:moving', (e) => {
+                if (slider && !slider.classList.contains('hidden')) {
+                    updateSliderPosition(e.target);
                 }
             });
 
-            // 3. Object Moving Event (THE DODGE LOGIC)
-            fabricCanvas.on('object:moving', (e) => {
-                const obj = e.target;
-                const slider = document.getElementById('stamp-slider-container');
-                
-                // Only "dodge" if the slider is currently visible
-                if (slider && !slider.classList.contains('hidden')) {
-                    
-                    const canvasHeight = fabricCanvas.getHeight();
-                    
-                    // Calculate the physical bottom edge of the dragging stamp
-                    // (obj.top is the center Y because originY is usually 'center')
-                    const objBottomEdge = obj.top + (obj.getScaledHeight() / 2);
-                    
-                    // Threshold: If stamp is in the bottom 35% of the screen
-                    const threshold = canvasHeight * 0.65;
-
-                    if (objBottomEdge > threshold) {
-                        // --- DODGE: MOVE TO TOP ---
-                        // If it's currently at the bottom, move it up
-                        if (slider.classList.contains('bottom-36')) {
-                            slider.classList.remove('bottom-36');
-                            slider.classList.add('top-24'); 
-                        }
-                    } else {
-                        // --- RESTORE: MOVE TO BOTTOM ---
-                        // If it's currently at the top, move it back down
-                        if (slider.classList.contains('top-24')) {
-                            slider.classList.remove('top-24');
-                            slider.classList.add('bottom-36'); 
-                        }
+            // 3. Deselection (Hide & Reset)
+            fabricCanvas.on('selection:cleared', () => {
+                if (typeof hideStampSettings === 'function') {
+                    hideStampSettings();
+                } else {
+                    if (slider) {
+                        slider.classList.add('hidden');
+                        // Reset to default for next time
+                        slider.classList.remove('top-24');
+                        slider.classList.add('bottom-36');
                     }
                 }
             });
@@ -2651,6 +2639,7 @@
     </script>
 </body>
 </html>
+
 
 
 
