@@ -2156,14 +2156,31 @@
         }
         
         function cancelEdit() {
+            // Hide the Editor View
             document.getElementById('view-editor').classList.add('hidden');
-            if(fabricCanvas) { try { fabricCanvas.dispose(); } catch(e){} fabricCanvas = null; }
-            batchQueue = []; 
-            isPdfBatch = false;
-            const title = document.querySelector('#add-menu-modal h3');
-            if(title) title.textContent = 'Add Document';
+            
+            // --- FIX: Force Hide Stamp Settings ---
+            const slider = document.getElementById('stamp-slider-container');
+            if (slider) {
+                slider.classList.add('hidden');
+                // Reset position to default (bottom) so it doesn't get stuck at the top
+                slider.classList.remove('top-24');
+                slider.classList.add('bottom-36');
+            }
 
-            if(currentJobId) openJobDetails(currentJobId); 
+            // Cleanup Canvas
+            if (fabricCanvas) {
+                try { fabricCanvas.dispose(); } catch (e) {}
+                fabricCanvas = null;
+            }
+
+            // Reset File Inputs (so you can upload the same file again if needed)
+            document.getElementById('doc-upload-input').value = '';
+            document.getElementById('stamp-input').value = '';
+            
+            // Reset Flags
+            editingDocId = null;
+            isStampMode = false;
         }
 
         async function handlePasteClick() {
@@ -2214,6 +2231,7 @@
         }
 
         function openEditor(imageInput) {
+            document.getElementById('stamp-slider-container').classList.add('hidden');
             document.getElementById('view-editor').classList.remove('hidden');
             
             const container = document.getElementById('view-editor').querySelector('.flex-1');
@@ -2670,6 +2688,7 @@
     </script>
 </body>
 </html>
+
 
 
 
