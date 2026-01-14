@@ -537,6 +537,8 @@
 
         // STATE
         let db = null;
+        let storage = null;
+        let auth = null;
         let jobs = []; 
         let archivedJobs = [];
         let isViewingArchive = false;
@@ -923,28 +925,43 @@
         function initFirebase() {
             if (typeof firebase !== 'undefined') {
                 try {
-                    const app = firebase.initializeApp(firebaseConfig);
-                    const firestore = firebase.firestore();
-                    firestore.enablePersistence().catch(err => console.warn('Persistence warning:', err.code));
-                    firebase.auth().signInAnonymously()
-                        .then(() => {
-                            console.log("👤 Signed in Anonymously");
-                            db = firestore; 
-                            updateConnectionStatus(true);
-                            loadJobsFromFirestore();
-                        })
-                        .catch((error) => {
-                            console.error("Auth Failed", error);
-                            updateConnectionStatus(false);
-                            if (error.code === 'auth/configuration-not-found' || error.code === 'auth/operation-not-allowed') {
-                                alert("Configuration Error: Enable Anonymous Auth in Firebase Console.");
-                            }
-                        });
+                    // 1. Initialize App
+                    if (!firebase.apps.length) {
+                        firebase.initializeApp(firebaseConfig);
+                    }
+
+                    // 2. ASSIGN GLOBALS IMMEDIATELY
+                    // Do not wait for login. We need 'db' ready for the checkSystemStatus() function.
+                    db = firebase.firestore();
+                    auth = firebase.auth();
+                    
+                    // Initialize Storage if you use it
+                    if (firebase.storage) {
+                        storage = firebase.storage();
+                    }
+
+                    // 3. Enable Offline Persistence (Optional but recommended)
+                    db.enablePersistence().catch(err => {
+                        if (err.code == 'failed-precondition') {
+                            console.warn('Persistence warning: Multiple tabs open');
+                        } else if (err.code == 'unimplemented') {
+                            console.warn('Persistence warning: Browser not supported');
+                        }
+                    });
+
+                    console.log("🔥 Firebase Initialized (Waiting for Auth...)");
+                    updateConnectionStatus(true);
+
+                    // Note: We REMOVED signInAnonymously() and loadJobsFromFirestore() here.
+                    // Your new 'initAuthSystem()' function will handle the login and loading now.
+
                 } catch (e) {
                     console.error("Firebase Init Failed:", e);
                     updateConnectionStatus(false);
                 }
-            } else { updateConnectionStatus(false); }
+            } else { 
+                updateConnectionStatus(false); 
+            }
         }
 
         // --- 5. ACTION HANDLERS ---
@@ -2982,6 +2999,7 @@
     </script>
 </body>
 </html>
+
 
 
 
