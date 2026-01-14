@@ -87,12 +87,12 @@
         </div>
         <div class="flex gap-2">
             
-            <button id="btn-team-manager" onclick="openInviteModal()" class="hidden text-xs bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500 hover:text-white px-3 py-1.5 rounded-full border border-indigo-500/30 flex items-center gap-1 active:scale-95 transition-all" title="Manage Team & Invites">
+            <button id="btn-team-manager" onclick="openInviteModal()" class="hidden text-xs bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500 hover:text-white px-3 py-1.5 rounded-full border border-indigo-500/30 flex items-center gap-1 active:scale-95 transition-all" title="Manage Team">
                 <i data-lucide="users" class="w-3 h-3"></i> Team
             </button>
     
             <input type="file" id="archive-upload" accept=".cbor,.json" class="hidden" onchange="handleArchiveUpload(this)">
-            <button onclick="document.getElementById('archive-upload').click()" class="text-xs bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-full border border-gray-700 text-gray-400 flex items-center gap-1 active:scale-95 transition-transform">
+            <button id="btn-archive" onclick="document.getElementById('archive-upload').click()" class="hidden text-xs bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-full border border-gray-700 text-gray-400 flex items-center gap-1 active:scale-95 transition-transform">
                 <i data-lucide="archive-restore" class="w-3 h-3"></i> Archive
             </button>
     
@@ -400,6 +400,28 @@
         </div>
     </div>
 
+    <div id="invite-modal" class="fixed inset-0 z-[90] hidden flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+        <div class="bg-gray-800 p-6 rounded-2xl w-full max-w-md border border-gray-700 shadow-2xl flex flex-col max-h-[80vh]">
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h3 class="text-lg font-bold text-white">Team Invites</h3>
+                    <p class="text-xs text-gray-400">Manage access links.</p>
+                </div>
+                <button onclick="closeInviteModal()" class="text-gray-400 hover:text-white p-2">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+    
+            <button onclick="generateNewInvite()" class="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/20 active:scale-95 transition-all flex justify-center items-center gap-2 mb-6">
+                <i data-lucide="plus" class="w-4 h-4"></i> Generate New Link
+            </button>
+    
+            <div class="flex-1 overflow-y-auto space-y-3 pr-2" id="invite-list-container">
+                <div class="text-center text-gray-500 py-4 text-sm">Loading invites...</div>
+            </div>
+        </div>
+    </div>
+
     <div id="save-modal" class="fixed inset-0 z-[80] hidden flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
         <div class="bg-gray-800 p-6 rounded-2xl w-full max-w-sm border border-gray-700 shadow-2xl">
             <h3 class="text-lg font-bold text-white mb-1">Save Document</h3>
@@ -541,6 +563,7 @@
         let isPdfBatch = false; 
         let pendingDeleteType = 'doc'; // 'doc' or 'job'
         let isStampMode = false;
+        let activeInviteCode = null; // Stores the validated code for the guest
 
         let currentUser = null;
         let userRole = 'user'; // 'admin' or 'user'
@@ -580,43 +603,83 @@
             const title = document.getElementById('auth-title');
             const subtitle = document.getElementById('auth-subtitle');
             const btnText = document.getElementById('btn-auth-text');
-            
-            // Check URL params for invite
-            const urlParams = new URLSearchParams(window.location.search);
-            const isInvite = urlParams.get('mode') === 'signup';
+            const authBtn = document.getElementById('btn-auth-action');
         
-            if (isInvite) {
-                // INVITE MODE
-                title.innerText = "Join Team";
-                subtitle.innerText = "Create your account to join.";
-                btnText.innerText = "Create Account";
-                document.getElementById('btn-auth-action').setAttribute('data-mode', 'signup');
-                return;
+            // 1. CHECK URL FOR INVITE CODE
+            const urlParams = new URLSearchParams(window.location.search);
+            const inviteId = urlParams.get('invite');
+        
+            if (inviteId) {
+                // Validate the invite against Firestore
+                btnText.innerText = "Verifying Invite...";
+                authBtn.disabled = true;
+        
+                try {
+                    const doc = await db.collection('invites').doc(inviteId).get();
+                    
+                    if (doc.exists && doc.data().status === 'active') {
+                        // VALID INVITE
+                        activeInviteCode = inviteId; // Save for later
+                        
+                        title.innerText = "You're Invited!";
+                        subtitle.innerText = "Create your account to join the team.";
+                        btnText.innerText = "Create Account";
+                        authBtn.setAttribute('data-mode', 'signup');
+                        authBtn.disabled = false;
+                        
+                        // Optional: Show "Back to Login" link if needed
+                        return; 
+                    } else {
+                        // INVALID INVITE
+                        title.innerText = "Invalid Link";
+                        subtitle.innerHTML = "<span class='text-red-400'>This invite is expired or revoked.</span>";
+                        btnText.innerText = "Return to Login";
+                        authBtn.setAttribute('data-mode', 'reset-url'); // Custom mode to clear URL
+                        authBtn.disabled = false;
+                        return;
+                    }
+                } catch (e) {
+                    console.error("Invite check failed", e);
+                    // Fallback to normal login if check crashes
+                }
             }
         
-            // CHECK DB FOR ZERO USERS
-            const usersSnap = await db.collection('users').limit(1).get();
-            
-            if (usersSnap.empty) {
-                // ZERO USERS -> ADMIN SETUP MODE
-                title.innerText = "System Setup";
-                subtitle.innerText = "No users detected. Create the Admin account.";
-                btnText.innerText = "Register Admin";
-                document.getElementById('btn-auth-action').setAttribute('data-mode', 'register-admin');
-            } else {
-                // NORMAL LOGIN MODE
-                title.innerText = "System Login";
-                subtitle.innerText = "Please sign in to continue.";
-                btnText.innerText = "Sign In";
-                document.getElementById('btn-auth-action').setAttribute('data-mode', 'login');
+            // 2. NORMAL FLOW (No Invite in URL)
+            try {
+                const usersSnap = await db.collection('users').limit(1).get();
+                
+                if (usersSnap.empty) {
+                    // ZERO USERS -> ADMIN SETUP
+                    title.innerText = "System Setup";
+                    subtitle.innerText = "No users detected. Create Admin account.";
+                    btnText.innerText = "Register Admin";
+                    authBtn.setAttribute('data-mode', 'register-admin');
+                } else {
+                    // NORMAL LOGIN
+                    title.innerText = "System Login";
+                    subtitle.innerText = "Please sign in to continue.";
+                    btnText.innerText = "Sign In";
+                    authBtn.setAttribute('data-mode', 'login');
+                }
+            } catch (err) {
+                console.error("System Check Error:", err);
+                title.innerText = "System Login"; 
             }
         }
         
         async function handleAuthAction() {
             const email = document.getElementById('auth-email').value;
             const password = document.getElementById('auth-password').value;
-            const mode = document.getElementById('btn-auth-action').getAttribute('data-mode');
-            
+            const btn = document.getElementById('btn-auth-action');
+            const mode = btn.getAttribute('data-mode');
+        
+            // Handle "Reset URL" (Invalid Invite Button)
+            if (mode === 'reset-url') {
+                window.history.replaceState({}, document.title, "/");
+                window.location.reload();
+                return;
+            }
+        
             if (!email || !password) return alert("Please fill in all fields");
             if (password.length < 6) return alert("Password must be at least 6 characters");
         
@@ -625,25 +688,34 @@
         
             try {
                 if (mode === 'login') {
-                    // --- LOGIN ---
                     await firebase.auth().signInWithEmailAndPassword(email, password);
-                    // onAuthStateChanged will handle the rest
                 } 
                 else if (mode === 'register-admin' || mode === 'signup') {
-                    // --- REGISTER ---
+                    // --- REGISTRATION ---
                     const userCred = await firebase.auth().createUserWithEmailAndPassword(email, password);
                     const role = (mode === 'register-admin') ? 'admin' : 'user';
-                    
-                    // Create User Profile in Firestore
+        
+                    // 1. Create User Profile
                     await db.collection('users').doc(userCred.user.uid).set({
                         email: email,
                         role: role,
                         createdAt: new Date().toISOString()
                     });
+        
+                    // 2. IF INVITE WAS USED, MARK IT AS USED
+                    if (mode === 'signup' && activeInviteCode) {
+                        await db.collection('invites').doc(activeInviteCode).update({
+                            status: 'used',
+                            usedBy: userCred.user.uid,
+                            usedByEmail: email,
+                            usedAt: new Date().toISOString()
+                        });
+                    }
+        
+                    alert(role === 'admin' ? "Admin Account Created!" : "Welcome to the Team!");
                     
-                    alert(role === 'admin' ? "Admin Account Created!" : "Account Created!");
-                    // Clean URL if it was an invite
-                    if (mode === 'signup') window.history.replaceState({}, document.title, "/");
+                    // Clean URL
+                    if (activeInviteCode) window.history.replaceState({}, document.title, "/");
                 }
             } catch (err) {
                 console.error(err);
@@ -674,7 +746,7 @@
             safeHide('view-scanner');
             safeHide('view-crop');
             safeHide('add-menu-modal');
-            safeHide('invite-modal'); // <--- Make sure the new modal is hidden too
+            safeHide('invite-modal'); 
         
             // 2. SHOW Main App Components
             const appHeader = document.getElementById('app-header');
@@ -683,10 +755,20 @@
             if (appHeader) appHeader.classList.remove('hidden');
             if (viewJobs) viewJobs.classList.remove('hidden');
         
-            // 3. ADMIN CHECK: Show Team Button
+            // 3. ADMIN CHECK: Unlock Management Features
             if (typeof userRole !== 'undefined' && userRole === 'admin') {
                 const teamBtn = document.getElementById('btn-team-manager');
+                const archiveBtn = document.getElementById('btn-archive');
+                const archiveAlert = document.getElementById('archive-alert'); // The yellow "Cleanup Recommended" box
+        
                 if (teamBtn) teamBtn.classList.remove('hidden');
+                if (archiveBtn) archiveBtn.classList.remove('hidden');
+                if (archiveAlert) archiveAlert.classList.remove('hidden'); // Only admins see the cleanup warning
+            } else {
+                // Double check they are hidden for non-admins
+                safeHide('btn-team-manager');
+                safeHide('btn-archive');
+                safeHide('archive-alert'); 
             }
         
             // 4. Load Data
@@ -695,15 +777,112 @@
             }
         }
 
-        function copyInviteLink() {
-            // Current URL + ?mode=signup
+        // --- INVITE SYSTEM ---
+
+        function openInviteModal() {
+            document.getElementById('invite-modal').classList.remove('hidden');
+            loadInvites(); // Fetch list from DB
+        }
+        
+        function closeInviteModal() {
+            document.getElementById('invite-modal').classList.add('hidden');
+        }
+        
+        async function loadInvites() {
+            const container = document.getElementById('invite-list-container');
+            if (!db) return;
+        
+            try {
+                // Get all invites sorted by newest
+                const snap = await db.collection('invites').orderBy('createdAt', 'desc').get();
+                
+                if (snap.empty) {
+                    container.innerHTML = `<div class="text-center text-gray-500 py-4 text-xs">No active invites found.</div>`;
+                    return;
+                }
+        
+                container.innerHTML = snap.docs.map(doc => {
+                    const data = doc.data();
+                    const date = new Date(data.createdAt).toLocaleDateString();
+                    const isUsed = data.status === 'used';
+                    const isRevoked = data.status === 'revoked';
+                    
+                    // Status Badge Logic
+                    let statusHtml = '<span class="text-[10px] text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded bg-emerald-900/20">Active</span>';
+                    if(isUsed) statusHtml = '<span class="text-[10px] text-blue-400 border border-blue-500/30 px-1.5 py-0.5 rounded bg-blue-900/20">Used</span>';
+                    if(isRevoked) statusHtml = '<span class="text-[10px] text-red-400 border border-red-500/30 px-1.5 py-0.5 rounded bg-red-900/20">Revoked</span>';
+        
+                    // Button Logic
+                    let actionBtn = '';
+                    if (!isUsed && !isRevoked) {
+                        actionBtn = `<button onclick="revokeInvite('${doc.id}')" class="p-2 text-red-400 hover:text-white bg-red-900/10 hover:bg-red-900/50 rounded-lg transition-colors" title="Revoke"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`;
+                    }
+                    
+                    // Copy Link Button
+                    const linkBtn = `<button onclick="copySpecificLink('${doc.id}')" class="p-2 text-gray-400 hover:text-white bg-gray-700/50 hover:bg-gray-600 rounded-lg transition-colors" title="Copy Link"><i data-lucide="copy" class="w-4 h-4"></i></button>`;
+        
+                    return `
+                        <div class="bg-gray-900/50 p-3 rounded-xl border border-gray-700 flex justify-between items-center">
+                            <div>
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="font-mono text-xs text-gray-300">...${doc.id.slice(-6)}</span>
+                                    ${statusHtml}
+                                </div>
+                                <div class="text-[10px] text-gray-500">Created: ${date}</div>
+                                ${isUsed ? `<div class="text-[10px] text-blue-400 mt-0.5">Used by: ${data.usedByEmail || 'Unknown'}</div>` : ''}
+                            </div>
+                            <div class="flex gap-2">
+                                ${linkBtn}
+                                ${actionBtn}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                
+                lucide.createIcons();
+            } catch (e) {
+                console.error(e);
+                container.innerHTML = `<div class="text-center text-red-400 py-4 text-xs">Error loading invites.</div>`;
+            }
+        }
+        
+        async function generateNewInvite() {
+            if (!db || !currentUser) return;
+            
+            try {
+                const newInviteRef = db.collection('invites').doc(); // Auto-ID
+                await newInviteRef.set({
+                    createdAt: new Date().toISOString(),
+                    createdBy: currentUser.uid,
+                    status: 'active', // active, used, revoked
+                    usedBy: null
+                });
+                
+                // Auto-copy the link
+                copySpecificLink(newInviteRef.id);
+                
+                // Refresh list
+                loadInvites();
+                
+            } catch (e) {
+                alert("Failed to create invite: " + e.message);
+            }
+        }
+        
+        async function revokeInvite(inviteId) {
+            if(!confirm("Are you sure? This link will stop working immediately.")) return;
+            try {
+                await db.collection('invites').doc(inviteId).update({ status: 'revoked' });
+                loadInvites();
+            } catch(e) { alert("Error: " + e.message); }
+        }
+        
+        function copySpecificLink(inviteId) {
             const baseUrl = window.location.href.split('?')[0];
-            const inviteUrl = `${baseUrl}?mode=signup`;
+            const inviteUrl = `${baseUrl}?invite=${inviteId}`;
             
             navigator.clipboard.writeText(inviteUrl).then(() => {
-                alert("📋 Invite Link Copied!\n\nShare this link to allow a new user to sign up:\n" + inviteUrl);
-            }).catch(err => {
-                prompt("Copy this link:", inviteUrl);
+                alert("🔗 Link Copied!\n\nSend this to your new team member.");
             });
         }
         
@@ -1089,7 +1268,7 @@
                 'Service Report': 4, 'Delivery Order': 5, 'Invoice': 6,
                 'Permit to Work': 7, 'Other': 99 
             };
-
+        
             const sortedDocs = [...job.documents].sort((a, b) => {
                 const weightA = sortWeights[a.docCategory] || 99;
                 const weightB = sortWeights[b.docCategory] || 99;
@@ -1101,18 +1280,32 @@
                 
                 return b.id.localeCompare(a.id); 
             });
-
+        
             list.innerHTML = sortedDocs.map(doc => {
+                // --- 1. DETECT OFFLINE STATUS ---
+                // A doc is "Offline" if the job is archived AND the doc is marked offline AND we don't have the source loaded yet.
+                const isOffline = (job.isArchived && doc.isOffline && !doc.src);
+                
+                // --- 2. ICON LOGIC ---
                 let icon = 'file-text';
                 if (doc.type === 'img' || doc.type === 'scan') icon = 'image';
                 if (doc.type === 'pdf') icon = 'file';
                 
+                // If offline, override with cloud-off icon
+                if (isOffline) icon = 'cloud-off'; 
+        
                 const displayName = doc.name.replace(/\.[^/.]+$/, "");
                 const isDO = doc.docCategory === 'Delivery Order';
-
-                // --- NEW TOGGLE BUTTON LOGIC ---
+        
+                // --- 3. BADGE LOGIC ---
                 let statusBadge = '';
-                if (isDO) {
+                
+                if (isOffline) {
+                    // New "Offline" Badge
+                    statusBadge = `<span class="text-[9px] px-1.5 py-0.5 rounded border border-gray-600 text-gray-400 bg-gray-800 uppercase font-bold whitespace-nowrap">OFFLINE</span>`;
+                } 
+                else if (isDO) {
+                    // Existing DO Logic (Only show if NOT offline)
                     if (doc.isSigned) {
                         statusBadge = `
                         <button onclick="event.stopPropagation(); toggleDOSigned('${doc.id}')" class="ml-2 px-2 py-0.5 rounded-full bg-emerald-900/40 border border-emerald-500/50 text-[10px] text-emerald-400 font-bold uppercase tracking-wider hover:bg-emerald-900/60 transition-colors flex items-center gap-1 shrink-0">
@@ -1125,26 +1318,30 @@
                         </button>`;
                     }
                 }
-
-                // Action Buttons
+        
+                // --- 4. ACTION BUTTONS ---
                 let actionButtons = '';
-                if (isViewingArchive) {
-                    actionButtons = `<button class="p-2 text-gray-500 cursor-not-allowed border border-gray-700 rounded"><i data-lucide="lock" class="w-4 h-4"></i></button>`;
+                
+                // If viewing archive OR if the specific job is archived, lock actions
+                if (isViewingArchive || job.isArchived) {
+                     // Lock Button (No Edit/Delete allowed in Archive Mode)
+                     actionButtons = `<button class="p-2 text-gray-500 cursor-not-allowed border border-gray-700 rounded" title="Archived (Read Only)"><i data-lucide="lock" class="w-4 h-4"></i></button>`;
                 } else {
-                    actionButtons += `<button onclick="event.stopPropagation(); editExistingDoc('${doc.id}')" class="p-2 text-blue-400 hover:text-white bg-blue-900/20 rounded border border-blue-900/50 mr-2"><i data-lucide="pen-tool" class="w-4 h-4"></i></button>`;
-                    actionButtons += `<button onclick="event.stopPropagation(); promptDelete('${doc.id}', 'doc')" class="p-2 text-red-400 hover:text-white bg-red-900/20 rounded border border-red-900/50"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`;
+                     // Normal Mode
+                     actionButtons += `<button onclick="event.stopPropagation(); editExistingDoc('${doc.id}')" class="p-2 text-blue-400 hover:text-white bg-blue-900/20 rounded border border-blue-900/50 mr-2"><i data-lucide="pen-tool" class="w-4 h-4"></i></button>`;
+                     actionButtons += `<button onclick="event.stopPropagation(); promptDelete('${doc.id}', 'doc')" class="p-2 text-red-400 hover:text-white bg-red-900/20 rounded border border-red-900/50"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`;
                 }
-
+        
                 return `
                 <div onclick="viewDocument('${doc.id}')" class="bg-gray-800 p-3 rounded-lg border border-gray-700 flex justify-between items-center cursor-pointer hover:bg-gray-700/50 transition-colors group">
                     <div class="flex items-center gap-3 overflow-hidden">
                         <div class="w-10 h-10 shrink-0 rounded bg-gray-900 flex items-center justify-center text-gray-400 relative group-hover:text-white transition-colors">
-                            <i data-lucide="${icon}" class="w-5 h-5"></i>
-                            ${doc.isSigned ? '<div class="absolute -bottom-1 -right-1 bg-emerald-500 rounded-full p-0.5 border border-gray-900"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4"><polyline points="20 6 9 17 4 12"></polyline></svg></div>' : ''}
+                            <i data-lucide="${icon}" class="w-5 h-5 ${isOffline ? 'text-gray-600' : ''}"></i>
+                            ${doc.isSigned && !isOffline ? '<div class="absolute -bottom-1 -right-1 bg-emerald-500 rounded-full p-0.5 border border-gray-900"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4"><polyline points="20 6 9 17 4 12"></polyline></svg></div>' : ''}
                         </div>
                         <div class="min-w-0">
                             <div class="flex items-center gap-2 mb-0.5">
-                                <p class="text-sm font-medium text-gray-200 group-hover:text-emerald-400 transition-colors truncate">${displayName}</p>
+                                <p class="text-sm font-medium text-gray-200 group-hover:text-emerald-400 transition-colors truncate ${isOffline ? 'opacity-50' : ''}">${displayName}</p>
                             </div>
                             <div class="flex items-center gap-1 flex-wrap">
                                 <span class="text-[9px] px-1.5 py-0.5 rounded border border-gray-600/50 text-gray-400 uppercase font-bold whitespace-nowrap">${doc.docCategory}</span>
@@ -1153,7 +1350,7 @@
                         </div>
                     </div>
                     <div class="flex gap-2 shrink-0 ml-2">
-                        <button onclick="event.stopPropagation(); downloadSinglePDF('${doc.id}')" class="p-2 text-red-400 hover:text-white bg-red-900/20 rounded border border-red-900/50"><i data-lucide="file-text" class="w-4 h-4"></i></button>
+                        ${!isOffline ? `<button onclick="event.stopPropagation(); downloadSinglePDF('${doc.id}')" class="p-2 text-red-400 hover:text-white bg-red-900/20 rounded border border-red-900/50"><i data-lucide="file-text" class="w-4 h-4"></i></button>` : ''}
                         ${actionButtons}
                     </div>
                 </div>
@@ -1161,7 +1358,6 @@
             
             if(typeof lucide !== 'undefined') lucide.createIcons();
         }
-
         async function toggleDOSigned(docId) {
             if (!currentJobId) return;
             const job = jobs.find(j => j.id === currentJobId);
@@ -1229,13 +1425,31 @@
         }
 
         function viewDocument(docId) {
-            const job = jobs.find(j => j.id === currentJobId);
+            const sourceList = isViewingArchive ? archivedJobs : jobs;
+            const job = sourceList.find(j => j.id === currentJobId);
             const doc = job.documents.find(d => d.id === docId);
             if(!doc) return;
-
+        
+            // --- NEW LOGIC: Check for Cold Storage ---
+            if (job.isArchived && doc.isOffline && !doc.src) {
+                // Trigger the file picker automatically
+                // But alert the user first so they know why
+                const confirmLoad = confirm(
+                    `🔒 Content Offline\n\nDocument: ${doc.name}\n\nThis image is in Cold Storage. Please load the '${job.client}' archive file (.cbor) to view it.`
+                );
+                
+                if (confirmLoad) {
+                    // Set a flag so we know WHICH doc to open after upload
+                    viewingDocId = docId; 
+                    document.getElementById('archive-upload').click();
+                }
+                return;
+            }
+            // ------------------------------------------
+        
             viewingDocId = docId; 
             document.body.style.cursor = 'wait';
-
+        
             ensureDocImageLoaded(job, doc).then(imgSrc => {
                 document.body.style.cursor = 'default';
                 if (imgSrc) {
@@ -1247,16 +1461,18 @@
                     img.src = imgSrc;
                     nameInput.value = doc.name.replace(/\.[^/.]+$/, "");
                     
-                    editBtn.onclick = (e) => { 
-                        e.stopPropagation();
-                        closeLightbox(); 
-                        editingDocId = docId;
-                        openEditor(imgSrc); 
-                    };
+                    // Disable edit/rename if archived
+                    if (job.isArchived) {
+                        editBtn.classList.add('hidden');
+                        nameInput.disabled = true;
+                    } else {
+                        editBtn.classList.remove('hidden');
+                        nameInput.disabled = false;
+                    }
                     
                     lightbox.classList.remove('hidden');
                 } else {
-                    alert("Image not available.");
+                    alert("Error: Image data not found.");
                 }
             });
         }
@@ -2775,45 +2991,93 @@
         }
 
         async function archiveClosedJobs() {
-            const jobsToArchive = jobs.filter(j => getJobStatus(j) === 'Completed');
-            if (jobsToArchive.length === 0) return alert("No completed jobs to archive.");
-
-            const archiveData = {
-                version: 1,
-                timestamp: Date.now(),
-                jobs: jobsToArchive
-            };
-
-            let blob, ext;
-            if (typeof CBOR !== 'undefined') {
-                blob = new Blob([CBOR.encode(archiveData)], { type: 'application/cbor' });
-                ext = 'cbor';
-            } else {
-                blob = new Blob([JSON.stringify(archiveData)], { type: 'application/json' });
-                ext = 'json';
-            }
-
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `DocuFlow_Archive_${new Date().toISOString().slice(0,10)}.${ext}`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-
-            if (confirm(`Successfully downloaded archive of ${jobsToArchive.length} jobs.\n\nDelete them from the active list to free up space?`)) {
-                if(db) {
-                    const batch = db.batch();
-                    jobsToArchive.forEach(job => {
-                        const docRef = db.collection('jobs').doc(job.id);
-                        batch.delete(docRef);
-                    });
-                    await batch.commit().catch(e => console.error(e));
+            // 1. Admin Check
+            if (userRole !== 'admin') return alert("⛔ Access Denied");
+        
+            // 2. Identify Candidates
+            const jobsToArchive = jobs.filter(j => getJobStatus(j) === 'Completed' && !j.isArchived);
+            if (jobsToArchive.length === 0) return alert("No active completed jobs to archive.");
+        
+            if (!confirm(`⚠️ COLD STORAGE WARNING ⚠️\n\nThis will DOWNLOAD the image data to your device and REMOVE it from the cloud to save space.\n\nThe Job ID and Document List will remain searchable, but images will require this file to view.\n\nProceed with ${jobsToArchive.length} jobs?`)) return;
+        
+            // 3. Prepare Full Data Bundle (The "Backup")
+            // We need to fetch the actual image binaries for the bundle before we delete them
+            const fullBackupData = [];
+            
+            document.body.style.cursor = 'wait';
+            
+            try {
+                for (const job of jobsToArchive) {
+                    const jobCopy = JSON.parse(JSON.stringify(job)); // Deep copy
+                    
+                    // Fetch content for each doc
+                    for (const doc of jobCopy.documents) {
+                        const imgData = await ensureDocImageLoaded(job, doc); // Forces fetch from DB
+                        doc.src = imgData; // Embed Base64/Blob URL into the JSON
+                        delete doc.image_blob; // Don't try to save Firestore objects to JSON
+                    }
+                    fullBackupData.push(jobCopy);
                 }
-                jobs = jobs.filter(j => getJobStatus(j) !== 'Completed');
-                renderJobs();
-                updateStorageUI();
+        
+                // 4. Generate Download (CBOR/JSON)
+                const archivePayload = { version: 1, timestamp: Date.now(), jobs: fullBackupData };
+                let blob, ext;
+                
+                if (typeof CBOR !== 'undefined') {
+                    blob = new Blob([CBOR.encode(archivePayload)], { type: 'application/cbor' });
+                    ext = 'cbor';
+                } else {
+                    blob = new Blob([JSON.stringify(archivePayload)], { type: 'application/json' });
+                    ext = 'json';
+                }
+        
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `DocuFlow_ColdStorage_${new Date().toISOString().slice(0,10)}.${ext}`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+        
+                // 5. DESTRUCTIVE DB UPDATE (The "Placeholder" conversion)
+                if (db) {
+                    const batch = db.batch();
+                    
+                    for (const job of jobsToArchive) {
+                        const jobRef = db.collection('jobs').doc(job.id);
+                        
+                        // A. Create "Lightweight" Document List (Metadata only, No SRC)
+                        const placeholderDocs = job.documents.map(d => ({
+                            id: d.id,
+                            name: d.name,
+                            docCategory: d.docCategory,
+                            date: d.date,
+                            size: d.size, // Keep size so we know what we are missing
+                            isSigned: d.isSigned,
+                            isOffline: true // <--- FLAG: Tells app to ask for CBOR
+                        }));
+        
+                        // B. Update Main Job Doc
+                        batch.update(jobRef, { 
+                            isArchived: true,
+                            archivedAt: new Date().toISOString(),
+                            documents: placeholderDocs // Replaces the list with the lightweight version
+                        });
+        
+                        // C. DELETE the heavy sub-collection items
+                        const scanSnaps = await jobRef.collection('scans').get();
+                        scanSnaps.forEach(doc => batch.delete(doc.ref));
+                    }
+                    
+                    await batch.commit();
+                    document.body.style.cursor = 'default';
+                    alert("✅ Jobs moved to Cold Storage.\nImages removed from Cloud.");
+                }
+        
+            } catch (e) {
+                console.error(e);
+                document.body.style.cursor = 'default';
+                alert("Archive failed: " + e.message);
             }
         }
 
@@ -2831,17 +3095,50 @@
                         data = CBOR.decode(e.target.result);
                     }
                     
-                    if (data && data.jobs) {
+                    if (!data || !data.jobs) throw new Error("Invalid file");
+        
+                    // --- STRATEGY: HYDRATION ---
+                    // We don't just replace the list. We look for matches in the current view.
+                    
+                    let restoreCount = 0;
+                    
+                    // 1. Loop through loaded jobs
+                    data.jobs.forEach(loadedJob => {
+                        // Find matching placeholder in our current memory (archivedJobs)
+                        const placeholderJob = archivedJobs.find(j => j.id === loadedJob.id);
+                        
+                        if (placeholderJob) {
+                            // Match found! Inject images.
+                            loadedJob.documents.forEach(loadedDoc => {
+                                const placeholderDoc = placeholderJob.documents.find(d => d.id === loadedDoc.id);
+                                if (placeholderDoc && loadedDoc.src) {
+                                    placeholderDoc.src = loadedDoc.src; // RESTORE IMAGE TO MEMORY
+                                    placeholderDoc.isOffline = false;   // REMOVE OFFLINE FLAG
+                                    restoreCount++;
+                                }
+                            });
+                        }
+                    });
+        
+                    if (restoreCount > 0) {
+                        alert(`✅ Restored ${restoreCount} images from archive.`);
+                        
+                        // If the user was trying to view a specific doc, open it now!
+                        if (viewingDocId) {
+                            viewDocument(viewingDocId);
+                        }
+                    } else {
+                        // If no matches found, maybe they are just viewing an old archive normally
+                        // Only switch view if we aren't currently looking at a specific list
                         isViewingArchive = true;
                         archivedJobs = data.jobs;
                         renderJobs();
-                        alert(`Loaded Archive: ${data.jobs.length} jobs.`);
-                    } else {
-                        alert("Invalid archive file.");
+                        alert(`Loaded ${data.jobs.length} jobs from archive.`);
                     }
+        
                 } catch (err) {
                     console.error(err);
-                    alert("Failed to load archive. Make sure it's a valid .cbor or .json file.");
+                    alert("Failed to load archive.");
                 }
             };
             
@@ -3002,6 +3299,7 @@
     </script>
 </body>
 </html>
+
 
 
 
