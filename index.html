@@ -1327,29 +1327,32 @@
 
             cropImgElement.src = imageSrc;
             
-            // Wait for image to load
+            // --- NEW: Add Padding for Stamps ---
+            // This physically expands the element so the canvas sitting on top
+            // is larger than the visible image.
+            if (isStampMode) {
+                cropImgElement.style.padding = '40px'; 
+                cropImgElement.style.backgroundColor = '#1f2937'; // Dark gray background for the padding area
+            } else {
+                cropImgElement.style.padding = '0px';
+                cropImgElement.style.backgroundColor = 'transparent';
+            }
+
+            // Wait for layout
             cropImgElement.onload = () => {
-                // RACE CONDITION FIX: 
-                // We use requestAnimationFrame twice to ensure the browser has 
-                // fully finished laying out the image in the center of the screen
-                // before we measure it.
                 requestAnimationFrame(() => {
                     requestAnimationFrame(() => {
-                        // Position Canvas EXACTLY over the Image
                         const rect = cropImgElement.getBoundingClientRect();
-                        
-                        // 1. Match Resolution (Internal)
                         const dpr = window.devicePixelRatio || 1;
+                        
+                        // Canvas matches the padded size
                         cropCanvas.width = rect.width * dpr;
                         cropCanvas.height = rect.height * dpr;
-                        
-                        // 2. Match Display Size & Position (CSS)
                         cropCanvas.style.width = rect.width + 'px';
                         cropCanvas.style.height = rect.height + 'px';
                         cropCanvas.style.left = rect.left + 'px';
                         cropCanvas.style.top = rect.top + 'px';
                         
-                        // Initialize logic
                         initCropPoints(detectedCorners);
                         renderCropUI();
                         initCropListeners();
@@ -1670,9 +1673,30 @@
                 let src = cv.imread(tempCanvas);
                 let warped = new cv.Mat();
                 
-                // --- 1. GEOMETRIC SORTING (Fixes "Wonky" Crops) ---
-                // We disregard the order of the drag points and sort them spatially:
-                // [Top-Left, Top-Right, Bottom-Right, Bottom-Left]
+                // --- 1. HANDLE PADDING OFFSET (For Stamps) ---
+                let padX = 0;
+                let padY = 0;
+                
+                // If we are in Stamp Mode, we must account for the 40px visual padding
+                // we added in openCropView.
+                if (isStampMode) {
+                    // Calculate internal canvas pixels per CSS pixel
+                    const ratioX = cropCanvas.width / cropCanvas.clientWidth;
+                    const ratioY = cropCanvas.height / cropCanvas.clientHeight;
+                    padX = 40 * ratioX;
+                    padY = 40 * ratioY;
+                }
+
+                // Calculate the "Effective" size of the image on the canvas (excluding padding)
+                const effectiveCanvasW = cropCanvas.width - (padX * 2);
+                const effectiveCanvasH = cropCanvas.height - (padY * 2);
+
+                // Update Scaling Factor
+                // Scale = Real Image Size / Effective Canvas Size
+                const scaleX = img.width / effectiveCanvasW;
+                const scaleY = img.height / effectiveCanvasH;
+                
+                // --- 2. GEOMETRIC SORTING (Fixes "Wonky" Crops) ---
                 const rawPoints = cropPoints.map(p => ({ x: p.x, y: p.y }));
                 
                 // Sort by Y to separate Top/Bottom rows
@@ -1682,24 +1706,29 @@
                 
                 const sortedPoints = [ topRow[0], topRow[1], bottomRow[1], bottomRow[0] ];
 
-                // Map to real image size
-                const scaleX = img.width / cropCanvas.width;
-                const scaleY = img.height / cropCanvas.height;
-                
+                // --- 3. CREATE SOURCE MATRIX (With Padding Adjustment) ---
+                // We subtract the padding (padX/padY) from the point coordinates before scaling
+                // to map them correctly to the raw image.
                 let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
-                    sortedPoints[0].x * scaleX, sortedPoints[0].y * scaleY, // TL
-                    sortedPoints[1].x * scaleX, sortedPoints[1].y * scaleY, // TR
-                    sortedPoints[2].x * scaleX, sortedPoints[2].y * scaleY, // BR
-                    sortedPoints[3].x * scaleX, sortedPoints[3].y * scaleY  // BL
+                    (sortedPoints[0].x - padX) * scaleX, (sortedPoints[0].y - padY) * scaleY, // TL
+                    (sortedPoints[1].x - padX) * scaleX, (sortedPoints[1].y - padY) * scaleY, // TR
+                    (sortedPoints[2].x - padX) * scaleX, (sortedPoints[2].y - padY) * scaleY, // BR
+                    (sortedPoints[3].x - padX) * scaleX, (sortedPoints[3].y - padY) * scaleY  // BL
                 ]);
 
-                // Calculate Orthogonal Destination Size
-                const w1 = Math.hypot((sortedPoints[1].x - sortedPoints[0].x)*scaleX, (sortedPoints[1].y - sortedPoints[0].y)*scaleY);
-                const w2 = Math.hypot((sortedPoints[2].x - sortedPoints[3].x)*scaleX, (sortedPoints[2].y - sortedPoints[3].y)*scaleY);
+                // --- 4. CALCULATE DESTINATION SIZE ---
+                // Calculate real distances using the adjusted coordinates
+                const p0x = (sortedPoints[0].x - padX) * scaleX; const p0y = (sortedPoints[0].y - padY) * scaleY;
+                const p1x = (sortedPoints[1].x - padX) * scaleX; const p1y = (sortedPoints[1].y - padY) * scaleY;
+                const p2x = (sortedPoints[2].x - padX) * scaleX; const p2y = (sortedPoints[2].y - padY) * scaleY;
+                const p3x = (sortedPoints[3].x - padX) * scaleX; const p3y = (sortedPoints[3].y - padY) * scaleY;
+
+                const w1 = Math.hypot(p1x - p0x, p1y - p0y);
+                const w2 = Math.hypot(p2x - p3x, p2y - p3y);
                 const maxWidth = Math.max(w1, w2);
 
-                const h1 = Math.hypot((sortedPoints[0].x - sortedPoints[3].x)*scaleX, (sortedPoints[0].y - sortedPoints[3].y)*scaleY);
-                const h2 = Math.hypot((sortedPoints[1].x - sortedPoints[2].x)*scaleX, (sortedPoints[1].y - sortedPoints[2].y)*scaleY);
+                const h1 = Math.hypot(p0x - p3x, p0y - p3y);
+                const h2 = Math.hypot(p1x - p2x, p1y - p2y);
                 const maxHeight = Math.max(h1, h2);
 
                 let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
@@ -1710,7 +1739,7 @@
                 let M = cv.getPerspectiveTransform(srcTri, dstTri);
                 cv.warpPerspective(src, warped, M, new cv.Size(maxWidth, maxHeight));
 
-                // --- 2. ENHANCEMENT (CamScanner Shadow Removal) ---
+                // --- 5. ENHANCEMENT (CamScanner Shadow Removal) ---
                 let finalMat = warped;
                 
                 // Skip shadow removal for Stamps (we usually want the ink as-is)
@@ -1725,7 +1754,7 @@
                             cv.split(lab, planes);
                             let L = planes.get(0);
                             
-                            // Estimate Background (Morphology)
+                            // Estimate Background
                             let bg = new cv.Mat();
                             let kernel = cv.Mat.ones(40, 40, cv.CV_8U);
                             cv.dilate(L, bg, kernel);
@@ -1740,7 +1769,7 @@
                             let flat_L = new cv.Mat();
                             result_f.convertTo(flat_L, cv.CV_8U);
                             
-                            // CLAHE (Contrast)
+                            // CLAHE
                             let clahe = new cv.createCLAHE(2.0, new cv.Size(8, 8));
                             clahe.apply(flat_L, flat_L);
                             
@@ -1749,10 +1778,8 @@
                             cv.merge(planes, lab);
                             let enhanced = new cv.Mat();
                             cv.cvtColor(lab, enhanced, cv.COLOR_Lab2RGB);
-                            
                             finalMat = enhanced;
                             
-                            // Cleanup enhancement objects
                             rgb.delete(); lab.delete(); planes.delete(); L.delete(); bg.delete(); 
                             kernel.delete(); L_f.delete(); bg_f.delete(); result_f.delete(); flat_L.delete(); clahe.delete();
                         }
@@ -1761,7 +1788,7 @@
 
                 // Output
                 cv.imshow('processing-canvas', finalMat); 
-                const outputMime = isStampMode ? 'image/png' : 'image/jpeg'; // PNG for stamps (better transparency potential)
+                const outputMime = isStampMode ? 'image/png' : 'image/jpeg';
                 const dataUrl = document.getElementById('processing-canvas').toDataURL(outputMime, 0.95);
 
                 // Cleanup
@@ -1773,12 +1800,10 @@
                 btn.innerHTML = originalBtnText;
 
                 if (isStampMode) {
-                    // Logic for Stamps: Return to editor and add image
                     isStampMode = false;
                     document.getElementById('view-editor').classList.remove('hidden');
                     addStampImageToCanvas(dataUrl);
                 } else {
-                    // Logic for Docs: Open new editor
                     openEditor(dataUrl);
                 }
 
@@ -2465,6 +2490,7 @@
     </script>
 </body>
 </html>
+
 
 
 
