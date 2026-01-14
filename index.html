@@ -238,6 +238,46 @@
         </div>
     </div>
 
+    <div id="archive-confirm-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center bg-black/90 backdrop-blur-sm px-4">
+        <div class="bg-gray-800 p-6 rounded-2xl w-full max-w-md border border-yellow-600/50 shadow-2xl flex flex-col gap-4">
+            
+            <div class="flex items-start gap-4">
+                <div class="p-3 bg-yellow-900/30 rounded-full border border-yellow-600/50 text-yellow-500 shrink-0">
+                    <i data-lucide="server-off" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-white">Cold Storage Archive</h3>
+                    <p class="text-xs text-gray-400 mt-1">
+                        You are about to move <span id="archive-count" class="text-white font-bold">0</span> jobs to offline storage.
+                    </p>
+                </div>
+            </div>
+    
+            <div class="bg-gray-900/50 p-4 rounded-xl border border-gray-700 text-xs text-gray-400 space-y-2">
+                <p>1. Images will be <span class="text-emerald-400 font-bold">DOWNLOADED</span> to your device.</p>
+                <p>2. Images will be <span class="text-red-400 font-bold">REMOVED</span> from the cloud.</p>
+                <p>3. Metadata remains searchable in the app.</p>
+            </div>
+    
+            <div>
+                <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Backup Filename</label>
+                <input type="text" id="archive-filename-input" 
+                       class="w-full bg-gray-900 text-white border border-gray-600 rounded-lg p-3 font-mono text-sm focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none"
+                       placeholder="DocuFlow_Backup.cbor">
+            </div>
+    
+            <div class="flex gap-3 mt-2">
+                <button onclick="document.getElementById('archive-confirm-modal').classList.add('hidden')" class="flex-1 py-3 text-gray-400 font-medium hover:text-white rounded-lg hover:bg-gray-700/50 transition-colors">
+                    Cancel
+                </button>
+                <button id="btn-execute-archive" onclick="executeArchive()" class="flex-1 py-3 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded-lg shadow-lg shadow-yellow-900/20 active:scale-95 transition-transform flex justify-center items-center gap-2">
+                    <span>Download & Wipe</span>
+                    <i data-lucide="download" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <div id="view-scanner" class="fixed inset-0 bg-black z-[60] hidden flex flex-col">
         <div class="relative flex-1 bg-black overflow-hidden flex items-center justify-center">
             <video id="video" class="absolute min-w-full min-h-full object-cover" playsinline autoplay muted></video>
@@ -1430,22 +1470,22 @@
             const doc = job.documents.find(d => d.id === docId);
             if(!doc) return;
         
-            // --- NEW LOGIC: Check for Cold Storage ---
+            // --- COLD STORAGE CHECK ---
             if (job.isArchived && doc.isOffline && !doc.src) {
-                // Trigger the file picker automatically
-                // But alert the user first so they know why
+                // Get the saved filename, or default to generic if missing
+                const requiredFile = job.archiveFilename || "the archive file";
+                
                 const confirmLoad = confirm(
-                    `🔒 Content Offline\n\nDocument: ${doc.name}\n\nThis image is in Cold Storage. Please load the '${job.client}' archive file (.cbor) to view it.`
+                    `🔒 Content Offline\n\nTo view this image, you need to load the backup file:\n\n📂 ${requiredFile}\n\nWould you like to load it now?`
                 );
                 
                 if (confirmLoad) {
-                    // Set a flag so we know WHICH doc to open after upload
                     viewingDocId = docId; 
                     document.getElementById('archive-upload').click();
                 }
                 return;
             }
-            // ------------------------------------------
+            // ---------------------------
         
             viewingDocId = docId; 
             document.body.style.cursor = 'wait';
@@ -1461,7 +1501,7 @@
                     img.src = imgSrc;
                     nameInput.value = doc.name.replace(/\.[^/.]+$/, "");
                     
-                    // Disable edit/rename if archived
+                    // Disable edit if archived
                     if (job.isArchived) {
                         editBtn.classList.add('hidden');
                         nameInput.disabled = true;
@@ -2990,97 +3030,146 @@
             renderDocumentList(job);
         }
 
-        async function archiveClosedJobs() {
-            // 1. Admin Check
-            if (userRole !== 'admin') return alert("⛔ Access Denied");
+        // Global variable to hold the list of jobs pending archive
+        let pendingArchiveJobs = [];
         
-            // 2. Identify Candidates
-            const jobsToArchive = jobs.filter(j => getJobStatus(j) === 'Completed' && !j.isArchived);
-            if (jobsToArchive.length === 0) return alert("No active completed jobs to archive.");
+        function archiveClosedJobs() {
+            // 1. Security Check
+            if (typeof userRole === 'undefined' || userRole !== 'admin') {
+                alert("⛔ Access Denied\n\nOnly Administrators can archive jobs.");
+                return;
+            }
         
-            if (!confirm(`⚠️ COLD STORAGE WARNING ⚠️\n\nThis will DOWNLOAD the image data to your device and REMOVE it from the cloud to save space.\n\nThe Job ID and Document List will remain searchable, but images will require this file to view.\n\nProceed with ${jobsToArchive.length} jobs?`)) return;
-        
-            // 3. Prepare Full Data Bundle (The "Backup")
-            // We need to fetch the actual image binaries for the bundle before we delete them
-            const fullBackupData = [];
+            // 2. Find Candidates
+            // Must be 'Completed' AND NOT already 'isArchived'
+            pendingArchiveJobs = jobs.filter(j => getJobStatus(j) === 'Completed' && !j.isArchived);
             
+            if (pendingArchiveJobs.length === 0) {
+                return alert("No active completed jobs to archive.");
+            }
+        
+            // 3. Prepare UI
+            const modal = document.getElementById('archive-confirm-modal');
+            const countEl = document.getElementById('archive-count');
+            const inputEl = document.getElementById('archive-filename-input');
+            
+            // Auto-generate smart filename
+            const dateStr = new Date().toISOString().slice(0, 10);
+            const defaultName = `DocuFlow_Archive_${dateStr}_(${pendingArchiveJobs.length}jobs).cbor`;
+            
+            countEl.innerText = pendingArchiveJobs.length;
+            inputEl.value = defaultName;
+            
+            // Show Modal
+            modal.classList.remove('hidden');
+        }
+        
+        async function executeArchive() {
+            const modal = document.getElementById('archive-confirm-modal');
+            const inputEl = document.getElementById('archive-filename-input');
+            const btn = document.getElementById('btn-execute-archive');
+            
+            // Validate Filename
+            let filename = inputEl.value.trim();
+            if (!filename) return alert("Please enter a filename.");
+            if (!filename.endsWith('.cbor')) filename += '.cbor';
+        
+            // UI Loading State
+            const originalText = btn.innerHTML;
+            btn.innerHTML = `<div class="loader w-4 h-4 border-t-white"></div> Processing...`;
+            btn.disabled = true;
             document.body.style.cursor = 'wait';
-            
+        
             try {
-                for (const job of jobsToArchive) {
-                    const jobCopy = JSON.parse(JSON.stringify(job)); // Deep copy
+                // 1. PREPARE DATA BUNDLE
+                const fullBackupData = [];
+                
+                // Loop through jobs and fetch full image data
+                for (const job of pendingArchiveJobs) {
+                    // Create a deep copy so we don't mess up the live view yet
+                    const jobCopy = JSON.parse(JSON.stringify(job)); 
                     
-                    // Fetch content for each doc
                     for (const doc of jobCopy.documents) {
-                        const imgData = await ensureDocImageLoaded(job, doc); // Forces fetch from DB
-                        doc.src = imgData; // Embed Base64/Blob URL into the JSON
-                        delete doc.image_blob; // Don't try to save Firestore objects to JSON
+                        // This ensures we get the Blob URL or Base64 data
+                        const imgData = await ensureDocImageLoaded(job, doc); 
+                        doc.src = imgData; 
+                        
+                        // Remove Firestore internal types if present
+                        delete doc.image_blob; 
                     }
                     fullBackupData.push(jobCopy);
                 }
         
-                // 4. Generate Download (CBOR/JSON)
-                const archivePayload = { version: 1, timestamp: Date.now(), jobs: fullBackupData };
-                let blob, ext;
+                // 2. GENERATE & DOWNLOAD FILE
+                const archivePayload = { 
+                    version: 1, 
+                    timestamp: Date.now(), 
+                    jobs: fullBackupData 
+                };
                 
-                if (typeof CBOR !== 'undefined') {
-                    blob = new Blob([CBOR.encode(archivePayload)], { type: 'application/cbor' });
-                    ext = 'cbor';
-                } else {
-                    blob = new Blob([JSON.stringify(archivePayload)], { type: 'application/json' });
-                    ext = 'json';
-                }
-        
+                const blob = new Blob([CBOR.encode(archivePayload)], { type: 'application/cbor' });
                 const url = URL.createObjectURL(blob);
+                
+                // Trigger Save As Dialog
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `DocuFlow_ColdStorage_${new Date().toISOString().slice(0,10)}.${ext}`;
+                a.download = filename;
                 document.body.appendChild(a);
-                a.click();
+                a.click(); // <--- Browser will show "Save As" here
                 document.body.removeChild(a);
+                
+                // Short pause to ensure download started before we wipe DB
+                await new Promise(r => setTimeout(r, 1000));
         
-                // 5. DESTRUCTIVE DB UPDATE (The "Placeholder" conversion)
+                // 3. DATABASE WIPE (The Destructive Part)
                 if (db) {
                     const batch = db.batch();
                     
-                    for (const job of jobsToArchive) {
+                    for (const job of pendingArchiveJobs) {
                         const jobRef = db.collection('jobs').doc(job.id);
                         
-                        // A. Create "Lightweight" Document List (Metadata only, No SRC)
+                        // Create Lightweight Placeholders
                         const placeholderDocs = job.documents.map(d => ({
                             id: d.id,
                             name: d.name,
                             docCategory: d.docCategory,
                             date: d.date,
-                            size: d.size, // Keep size so we know what we are missing
+                            size: d.size, 
                             isSigned: d.isSigned,
-                            isOffline: true // <--- FLAG: Tells app to ask for CBOR
+                            isOffline: true // <--- Flag for Cold Storage
                         }));
         
-                        // B. Update Main Job Doc
+                        // Update Main Job Record
                         batch.update(jobRef, { 
                             isArchived: true,
                             archivedAt: new Date().toISOString(),
-                            documents: placeholderDocs // Replaces the list with the lightweight version
+                            archiveFilename: filename, // <--- Link to the file we just saved
+                            documents: placeholderDocs 
                         });
         
-                        // C. DELETE the heavy sub-collection items
+                        // DELETE Sub-collection Images
                         const scanSnaps = await jobRef.collection('scans').get();
                         scanSnaps.forEach(doc => batch.delete(doc.ref));
                     }
                     
                     await batch.commit();
-                    document.body.style.cursor = 'default';
-                    alert("✅ Jobs moved to Cold Storage.\nImages removed from Cloud.");
+                    
+                    // Success!
+                    alert(`✅ Archive Complete!\n\n${pendingArchiveJobs.length} jobs have been moved to Cold Storage.\nKeep your '${filename}' file safe!`);
+                    modal.classList.add('hidden');
                 }
         
             } catch (e) {
-                console.error(e);
+                console.error("Archive Error:", e);
+                alert("Failed to archive: " + e.message);
+            } finally {
+                // Reset UI
+                btn.innerHTML = originalText;
+                btn.disabled = false;
                 document.body.style.cursor = 'default';
-                alert("Archive failed: " + e.message);
+                pendingArchiveJobs = []; // Clear memory
             }
         }
-
         function handleArchiveUpload(input) {
             if (!input.files || !input.files[0]) return;
             const file = input.files[0];
@@ -3299,6 +3388,7 @@
     </script>
 </body>
 </html>
+
 
 
 
