@@ -286,10 +286,7 @@
                     <div class="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center group-active:scale-90 transition-all text-gray-300 group-hover:text-white group-hover:border-gray-500"><i data-lucide="rotate-ccw" class="w-5 h-5"></i></div>
                     <span class="text-[10px] text-gray-400 font-medium">Left</span>
                 </button>
-                <button onclick="cycleFilter()" class="flex flex-col items-center gap-1.5 group w-14">
-                    <div class="w-10 h-10 rounded-full bg-indigo-600/20 border border-indigo-500/50 flex items-center justify-center group-active:scale-90 transition-all shadow-[0_0_15px_rgba(79,70,229,0.2)]"><i data-lucide="wand-2" class="w-5 h-5 text-indigo-400"></i></div>
-                    <span id="filter-label" class="text-[10px] text-indigo-300 font-medium">Original</span>
-                </button>
+                
                 <button onclick="rotateDoc('right')" class="flex flex-col items-center gap-1.5 group w-14">
                     <div class="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center group-active:scale-90 transition-all text-gray-300 group-hover:text-white group-hover:border-gray-500"><i data-lucide="rotate-cw" class="w-5 h-5"></i></div>
                     <span class="text-[10px] text-gray-400 font-medium">Right</span>
@@ -501,7 +498,6 @@
         let stream = null;
         let fabricCanvas = null;
         let isScanning = false;
-        let currentFilterIndex = 0; 
         let currentSearchTerm = "";
         let editingDocId = null;
         let pendingDownloadDocId = null; 
@@ -1455,14 +1451,11 @@
         function renderCropUI() {
             const ctx = cropCanvas.getContext('2d');
             
-            // Clear previous frame
+            // Clear & Draw Mask
             ctx.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
-            
-            // 1. Draw Mask (Darken the area OUTSIDE the crop)
             ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'; 
             ctx.fillRect(0, 0, cropCanvas.width, cropCanvas.height);
             
-            // Cut "hole" in the mask
             ctx.save();
             ctx.globalCompositeOperation = 'destination-out';
             ctx.beginPath();
@@ -1474,9 +1467,9 @@
             ctx.fill();
             ctx.restore();
 
-            // 2. Draw Connecting Lines
+            // Draw Lines
             ctx.beginPath();
-            ctx.strokeStyle = '#10b981'; // Emerald 500
+            ctx.strokeStyle = '#10b981'; 
             ctx.lineWidth = 3;
             ctx.moveTo(cropPoints[0].x, cropPoints[0].y);
             ctx.lineTo(cropPoints[1].x, cropPoints[1].y);
@@ -1485,17 +1478,14 @@
             ctx.closePath();
             ctx.stroke();
 
-            // 3. Draw Corner Handles
+            // Draw Handles
             cropPoints.forEach((p, i) => {
                 const isActive = (i === activePointIndex);
-                
-                // Outer Glow (Touch Area)
                 ctx.beginPath();
-                ctx.arc(p.x, p.y, 30, 0, Math.PI * 2); // Large touch target visual
+                ctx.arc(p.x, p.y, 30, 0, Math.PI * 2); 
                 ctx.fillStyle = 'rgba(16, 185, 129, 0.2)'; 
                 ctx.fill();
 
-                // Inner Solid Handle
                 ctx.beginPath();
                 ctx.arc(p.x, p.y, 10, 0, Math.PI * 2); 
                 ctx.fillStyle = isActive ? '#34d399' : '#10b981'; 
@@ -1505,74 +1495,85 @@
                 ctx.stroke();
             });
             
-            // --- 5. MAGNIFIER (The New Feature) ---
-            // Only show when the user is actively dragging a point
+            // --- 5. SMART MAGNIFIER (Updated) ---
             if(activePointIndex !== -1 && cropImgElement) {
                 const p = cropPoints[activePointIndex];
                 
-                // Settings
-                const zoom = 2.5;          // How much to zoom in
-                const size = 120;          // Diameter of the magnifier circle
-                const offset = 80;         // How far ABOVE the finger to float
+                // Config
+                const zoom = 2.5;
+                const size = 140;   // Bigger bubble (was 120)
+                const dist = 120;   // Distance from finger (was 80)
                 
-                // Calculate position (Floating above finger)
-                const magX = p.x;
-                const magY = p.y - offset;
+                // A. Smart Vertical Positioning (Flip if near top)
+                // If point is within top 150px, show bubble BELOW finger.
+                let magY = p.y - dist; 
+                if (p.y < 150) {
+                    magY = p.y + dist;
+                }
 
-                // --- A. Draw Magnifier Container (Circle) ---
+                // B. Smart Horizontal Positioning (Clamp to edges)
+                // Don't let the bubble go off the left or right side
+                let magX = p.x;
+                const minX = size / 2 + 10;
+                const maxX = cropCanvas.width - (size / 2) - 10;
+                magX = Math.max(minX, Math.min(maxX, magX));
+
+                // Draw Container
                 ctx.save();
                 ctx.beginPath();
                 ctx.arc(magX, magY, size / 2, 0, Math.PI * 2);
-                ctx.fillStyle = 'white'; // Fill background to hide lines behind it
+                ctx.fillStyle = 'white';
                 ctx.fill();
                 ctx.strokeStyle = 'white';
                 ctx.lineWidth = 4;
                 ctx.stroke();
                 
-                // Apply shadowing for pop-out effect
+                // Shadow
                 ctx.shadowColor = 'rgba(0,0,0,0.5)';
-                ctx.shadowBlur = 15;
+                ctx.shadowBlur = 20;
                 ctx.stroke();
-                ctx.shadowBlur = 0; // Reset shadow
+                ctx.shadowBlur = 0;
                 
-                // Clip! Anything drawn after this only appears inside the circle
+                // Clip content
                 ctx.clip();
 
-                // --- B. Draw the Zoomed Image ---
-                // We map the Canvas Point (p.x, p.y) to the actual Image Pixel
+                // Draw Zoomed Image
                 const imgRatioX = cropImgElement.naturalWidth / cropCanvas.width;
                 const imgRatioY = cropImgElement.naturalHeight / cropCanvas.height;
 
-                // Calculate which part of the source image to grab
-                // Source Width = Magnifier Size / Zoom Level
                 const sW = size / zoom * imgRatioX;
                 const sH = size / zoom * imgRatioY;
                 const sX = (p.x * imgRatioX) - (sW / 2);
                 const sY = (p.y * imgRatioY) - (sH / 2);
 
-                // Draw it into the magnifier circle
-                // We draw from cropImgElement to get High-Res pixels, not blurry canvas pixels
-                ctx.drawImage(
-                    cropImgElement, 
-                    sX, sY, sW, sH,             // Source (High Res Image)
-                    magX - size/2, magY - size/2, size, size // Destination (Magnifier Bubble)
-                );
+                if (cropImgElement.complete && cropImgElement.naturalWidth > 0) {
+                     ctx.drawImage(
+                        cropImgElement, 
+                        sX, sY, sW, sH, 
+                        magX - size/2, magY - size/2, size, size
+                    );
+                }
 
-                // --- C. Draw Crosshair (Precision Aim) ---
-                ctx.strokeStyle = '#10b981'; // Emerald
-                ctx.lineWidth = 2;
+                // Draw Precision Crosshair
+                // We use contrasting colors (Red + White) so it's visible on any background
+                ctx.lineWidth = 1;
+                
+                // White outer line
+                ctx.strokeStyle = 'rgba(255,255,255,0.8)';
                 ctx.beginPath();
-                
-                // Vertical Line
-                ctx.moveTo(magX, magY - (size/2));
-                ctx.lineTo(magX, magY + (size/2));
-                
-                // Horizontal Line
-                ctx.moveTo(magX - (size/2), magY);
-                ctx.lineTo(magX + (size/2), magY);
-                
+                ctx.moveTo(magX, magY - (size/2)); ctx.lineTo(magX, magY + (size/2));
+                ctx.moveTo(magX - (size/2), magY); ctx.lineTo(magX + (size/2), magY);
                 ctx.stroke();
-                ctx.restore(); // Stop Clipping
+
+                // Red inner line (High visibility)
+                ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+                ctx.beginPath();
+                // Shorter crosshair for precision
+                ctx.moveTo(magX, magY - 10); ctx.lineTo(magX, magY + 10);
+                ctx.moveTo(magX - 10, magY); ctx.lineTo(magX + 10, magY);
+                ctx.stroke();
+
+                ctx.restore();
             }
         }
 
@@ -2157,22 +2158,6 @@
             img.set({ left: fabricCanvas.width / 2, top: fabricCanvas.height / 2, scaleX: scale, scaleY: scale });
             img.setCoords(); fabricCanvas.renderAll();
         }
-        function cycleFilter() {
-            if(!fabricCanvas || !fabricCanvas.backgroundImage) return;
-            const img = fabricCanvas.backgroundImage;
-            const filterModes = ['Original', 'Grayscale', 'Enhanced'];
-            currentFilterIndex = (currentFilterIndex + 1) % filterModes.length;
-            const mode = filterModes[currentFilterIndex];
-            document.getElementById('filter-label').textContent = mode;
-            img.filters = [];
-            if (mode === 'Grayscale') { img.filters.push(new fabric.Image.filters.Grayscale()); } 
-            else if (mode === 'Enhanced') {
-                img.filters.push(new fabric.Image.filters.Grayscale());
-                img.filters.push(new fabric.Image.filters.Contrast({ contrast: 0.25 }));
-                img.filters.push(new fabric.Image.filters.Brightness({ brightness: 0.05 }));
-            }
-            img.applyFilters(); fabricCanvas.renderAll();
-        }
         
         function openAddMenu() { document.getElementById('add-menu-modal').classList.remove('hidden'); document.getElementById('add-menu-modal').classList.add('flex'); }
         function closeAddMenu() { document.getElementById('add-menu-modal').classList.add('hidden'); document.getElementById('add-menu-modal').classList.remove('flex'); }
@@ -2555,6 +2540,7 @@
     </script>
 </body>
 </html>
+
 
 
 
