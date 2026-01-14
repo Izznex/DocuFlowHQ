@@ -3205,65 +3205,88 @@
             const file = input.files[0];
             const reader = new FileReader();
             
+            // UI Feedback
+            document.body.style.cursor = 'wait';
+            
             reader.onload = function(e) {
                 try {
                     let data;
                     if (file.name.endsWith('.json')) {
                         data = JSON.parse(e.target.result);
                     } else {
+                        // Assuming global CBOR object exists
                         data = CBOR.decode(e.target.result);
                     }
                     
-                    if (!data || !data.jobs) throw new Error("Invalid file");
+                    if (!data || !data.jobs) throw new Error("Invalid file structure");
         
-                    // --- HYDRATION LOGIC ---
+                    console.log(`📂 Loading ${data.jobs.length} jobs from file...`);
+        
                     let restoreCount = 0;
+                    let jobsUpdated = new Set(); // Track which jobs got updated
                     
-                    // 1. Update Memory
+                    // --- ROBUST HYDRATION LOOP ---
                     data.jobs.forEach(loadedJob => {
-                        const placeholderJob = archivedJobs.find(j => j.id === loadedJob.id);
+                        // 1. Search in ARCHIVE List (Primary)
+                        let targetJob = archivedJobs.find(j => j.id === loadedJob.id);
                         
-                        if (placeholderJob) {
+                        // 2. Search in ACTIVE List (Fallback - just in case)
+                        if (!targetJob) {
+                            targetJob = jobs.find(j => j.id === loadedJob.id);
+                        }
+        
+                        if (targetJob) {
                             loadedJob.documents.forEach(loadedDoc => {
-                                const placeholderDoc = placeholderJob.documents.find(d => d.id === loadedDoc.id);
-                                // Only update if we actually have data to restore
-                                if (placeholderDoc && loadedDoc.src) {
-                                    placeholderDoc.src = loadedDoc.src; // Inject Binary Data
-                                    placeholderDoc.isOffline = false;   // Clear Offline Flag
+                                const targetDoc = targetJob.documents.find(d => d.id === loadedDoc.id);
+                                
+                                // We only restore if we have new data (src) to inject
+                                if (targetDoc && loadedDoc.src) {
+                                    console.log(`✅ Restoring: ${targetJob.id} / ${targetDoc.name}`);
+                                    
+                                    targetDoc.src = loadedDoc.src; // Inject Binary/Base64
+                                    targetDoc.isOffline = false;   // CRITICAL: Flip the flag
                                     restoreCount++;
+                                    jobsUpdated.add(targetJob.id);
                                 }
                             });
                         }
                     });
         
+                    console.log(`🔄 Restored ${restoreCount} images total.`);
+        
                     if (restoreCount > 0) {
-                        // --- CRITICAL FIX: REFRESH UI ---
-                        // If we are currently looking at a job, re-render the list immediately
-                        if (currentJobId) {
-                            const currentJob = archivedJobs.find(j => j.id === currentJobId);
-                            if (currentJob) {
-                                console.log("Refreshing UI for job:", currentJob.client);
-                                renderDocumentList(currentJob); // <--- THIS UPDATES THE ICONS/BADGES
+                        // --- FORCE UI REFRESH ---
+                        // If we are currently viewing a job that was just updated, re-render it IMMEDIATELY
+                        if (currentJobId && jobsUpdated.has(currentJobId)) {
+                            // Find the job object again to be safe
+                            const jobToRender = archivedJobs.find(j => j.id === currentJobId) || jobs.find(j => j.id === currentJobId);
+                            if (jobToRender) {
+                                console.log("🎨 Re-rendering current job UI...");
+                                renderDocumentList(jobToRender);
                             }
                         }
-        
-                        alert(`✅ Restored ${restoreCount} images from archive.`);
                         
-                        // If the user clicked a specific doc to trigger this, open it now
+                        // If we were waiting for a specific doc (from the "View" prompt), open it now
                         if (viewingDocId) {
                             viewDocument(viewingDocId);
                         }
+                        
+                        alert(`✅ Successfully restored ${restoreCount} documents.`);
                     } else {
-                        // Normal Archive Load (View Mode)
+                        // Fallback: If no matches were found, maybe they are loading a totally different archive?
+                        // Switch to Archive View and show what was loaded
                         isViewingArchive = true;
-                        archivedJobs = data.jobs;
+                        archivedJobs = data.jobs; 
                         renderJobs();
-                        alert(`Loaded ${data.jobs.length} jobs from archive.`);
+                        alert(`Loaded ${data.jobs.length} jobs from archive (View Only).`);
                     }
         
                 } catch (err) {
-                    console.error(err);
-                    alert("Failed to load archive.");
+                    console.error("Archive Load Error:", err);
+                    alert("Failed to load archive: " + err.message);
+                } finally {
+                    document.body.style.cursor = 'default';
+                    input.value = ''; // Reset input so we can select the same file again if needed
                 }
             };
             
@@ -3272,7 +3295,6 @@
             } else {
                 reader.readAsArrayBuffer(file);
             }
-            input.value = '';
         }
 
         function downloadJobBundle() {
@@ -3424,6 +3446,7 @@
     </script>
 </body>
 </html>
+
 
 
 
