@@ -2764,14 +2764,19 @@
             });
         }
 
+        // Store the scale factor globally so we can reverse it later
+        let editorScaleFactor = 1; 
+        
         function openEditor(imageInput) {
             document.getElementById('stamp-slider-container').classList.add('hidden');
             document.getElementById('view-editor').classList.remove('hidden');
             
             const container = document.getElementById('view-editor').querySelector('.flex-1');
             const canvasWrapper = document.getElementById('canvas-wrapper');
+            
+            // Give some breathing room
             const maxWidth = container.clientWidth - 40; 
-            const maxHeight = container.clientHeight - 40;
+            const maxHeight = container.clientHeight - 80;
             
             // Reset Canvas
             if (fabricCanvas) { try { fabricCanvas.dispose(); } catch (e) {} fabricCanvas = null; }
@@ -2779,12 +2784,16 @@
             
             fabricCanvas = new fabric.Canvas('fabric-canvas');
             
-            // --- DELETED THE BROKEN FILTER LINES HERE --- 
-            
             let dataUrl = (typeof imageInput === 'string') ? imageInput : imageInput.toDataURL();
             
             fabric.Image.fromURL(dataUrl, function(img) {
+                // --- SMART SCALING LOGIC ---
+                // 1. Calculate how small we made it for the screen
                 const scale = Math.min(maxWidth / img.width, maxHeight / img.height);
+                
+                // 2. Save this factor! We need 1/scale to restore it later.
+                editorScaleFactor = scale; 
+        
                 fabricCanvas.setWidth(img.width * scale); 
                 fabricCanvas.setHeight(img.height * scale);
                 
@@ -2805,6 +2814,7 @@
                 initFabricListeners();
             });
         }
+        
         function rotateDoc(direction) {
             if (!fabricCanvas || !fabricCanvas.backgroundImage) return;
             const img = fabricCanvas.backgroundImage;
@@ -2816,6 +2826,7 @@
             const effectiveW = isVertical ? img.height : img.width;
             const effectiveH = isVertical ? img.width : img.height;
             const scale = Math.min(maxWidth / effectiveW, maxHeight / effectiveH);
+            editorScaleFactor = scale;
             fabricCanvas.setWidth(effectiveW * scale); fabricCanvas.setHeight(effectiveH * scale);
             img.set({ left: fabricCanvas.width / 2, top: fabricCanvas.height / 2, scaleX: scale, scaleY: scale });
             img.setCoords(); fabricCanvas.renderAll();
@@ -2867,27 +2878,49 @@
         async function confirmSave() {
             const categorySelect = document.getElementById('doc-type-select');
             const category = categorySelect.value;
-            
-            // --- HANDLE SIGNED STATUS ---
             let isSigned = false;
             
             if (editingDocId && currentJobId) {
                 const job = jobs.find(j => j.id === currentJobId);
                 if (job) {
                     const doc = job.documents.find(d => d.id === editingDocId);
-                    if (doc) isSigned = doc.isSigned; // Keep original status
+                    if (doc) isSigned = doc.isSigned; 
                 }
             }
-
+        
             const saveBtn = document.getElementById('btn-confirm-save');
             const originalBtnText = saveBtn.innerHTML;
             saveBtn.innerHTML = 'Saving...';
             saveBtn.disabled = true;
-
+        
             try {
-                // High Quality Export
-                const finalMultiplier = 2; 
-                const currentDataURL = fabricCanvas.toDataURL({ format: 'webp', quality: 0.92, multiplier: finalMultiplier });
+                // --- 🚀 SMART RESOLUTION EXPORT ---
+                // We want the final image to be roughly 2500px on the longest side.
+                // This is high enough for crisp text, but low enough for email/storage.
+                
+                const targetSize = 2500; 
+                const currentLongestSide = Math.max(fabricCanvas.width, fabricCanvas.height);
+                
+                // Calculate exact multiplier to hit 2500px
+                // If image is already smaller than 2500px, we use the inverse of our screen scale (restore original).
+                let finalMultiplier = targetSize / currentLongestSide;
+                
+                // Safety: Don't upscale tiny images too much (e.g. icons), cap at restoring original size
+                if (editorScaleFactor > 0) {
+                     const originalResMultiplier = 1 / editorScaleFactor;
+                     // Use whichever is smaller: the target 2500px OR the original image size
+                     finalMultiplier = Math.min(finalMultiplier, originalResMultiplier);
+                }
+        
+                // Export as JPEG (Better for photos of documents than WebP at high res)
+                // Quality 0.80 is the "Goldilocks" zone: nearly identical to 0.92 visually, but 40% smaller file.
+                const currentDataURL = fabricCanvas.toDataURL({ 
+                    format: 'jpeg', 
+                    quality: 0.8, 
+                    multiplier: finalMultiplier 
+                });
+                
+                // ... (The rest of your existing confirmSave logic below remains the same) ...
                 
                 // Handle Batch vs Single
                 let finalSaveList = [];
@@ -3446,6 +3479,7 @@
     </script>
 </body>
 </html>
+
 
 
 
