@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>DocuFlow Scanner</title>
+    <title>DocuFlowHQ</title>
     <meta name="description" content="Instant document scanner and organizer.">
 
     <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin>
@@ -1032,50 +1032,70 @@
         }
 
         function updateStorageUI() {
-            // 1. RECALCULATE BYTES (Explicitly ignoring Archived/Offline items)
+            // 1. SAFE LIMIT DEFINITION
+            // Use the global variable if it exists, otherwise default to 100MB
+            const limitMB = (typeof STORAGE_LIMIT_MB !== 'undefined' && !isNaN(STORAGE_LIMIT_MB)) ? STORAGE_LIMIT_MB : 100;
+            
+            // 2. SAFE BYTE CALCULATION
             let totalBytes = 0;
         
             if (typeof jobs !== 'undefined' && Array.isArray(jobs)) {
                 jobs.forEach(job => {
-                    // Safety: Skip if the job itself is marked archived
-                    if (job.isArchived) return; 
+                    if (job.isArchived) return; // Skip archived jobs
         
                     if (job.documents && Array.isArray(job.documents)) {
                         job.documents.forEach(doc => {
-                            // CRITICAL FIX: Ignore documents marked 'isOffline'
-                            // These are the placeholders that still have a "size" property but take 0 cloud space
-                            if (!doc.isOffline) {
-                                totalBytes += (doc.size || 0);
+                            // Skip offline placeholders
+                            if (doc.isOffline) return;
+        
+                            // Force convert size to a number. If missing/invalid, treat as 0.
+                            const size = parseFloat(doc.size);
+                            
+                            if (!isNaN(size)) {
+                                totalBytes += size;
                             }
                         });
                     }
                 });
             }
         
-            // 2. UI UPDATES (Standard Logic)
-            const usedMB = (totalBytes / (1024 * 1024)).toFixed(1);
+            // 3. SAFE MATH (Prevents NaN)
+            const usedMB = totalBytes / (1024 * 1024);
             
-            // Ensure STORAGE_LIMIT_MB is defined (fallback to 100MB if missing)
-            const limit = (typeof STORAGE_LIMIT_MB !== 'undefined') ? STORAGE_LIMIT_MB : 100;
-            const percentage = Math.min((usedMB / limit) * 100, 100);
+            // Calculate percentage safely
+            let percentage = 0;
+            if (limitMB > 0) {
+                percentage = (usedMB / limitMB) * 100;
+            }
+            
+            // Clamp percentage between 0 and 100
+            percentage = Math.min(100, Math.max(0, percentage));
         
+            // 4. UI UPDATES
             const textEl = document.getElementById('storage-text');
-            if(textEl) textEl.textContent = `${usedMB} MB / ${limit} MB`;
+            if(textEl) {
+                // .toFixed(1) makes it "5.2" instead of "5.23481..."
+                textEl.textContent = `${usedMB.toFixed(1)} MB / ${limitMB} MB`;
+            }
             
             const bar = document.getElementById('storage-bar');
             if(bar) {
                 bar.style.width = `${percentage}%`;
                 
-                // Removed 'w-0' from classes to prevent conflict with style.width
+                // Reset classes first
+                bar.className = "h-full transition-all duration-500";
+                
+                // Apply color based on usage
                 if(percentage > 90) { 
-                    bar.className = "h-full bg-red-500 transition-all duration-500"; 
+                    bar.classList.add('bg-red-500'); 
                 } else if (percentage > 70) { 
-                    bar.className = "h-full bg-yellow-500 transition-all duration-500"; 
+                    bar.classList.add('bg-yellow-500'); 
                 } else { 
-                    bar.className = "h-full bg-emerald-500 transition-all duration-500"; 
+                    bar.classList.add('bg-emerald-500'); 
                 }
             }
         
+            // 5. ALERT BOX
             const alertBox = document.getElementById('archive-alert');
             if(alertBox) {
                 if(percentage >= 80) { 
@@ -3495,6 +3515,7 @@
     </script>
 </body>
 </html>
+
 
 
 
