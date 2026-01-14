@@ -675,22 +675,40 @@
         }
         
         function enterApp() {
-            // Hide Auth, Show App
-            document.getElementById('view-auth').classList.add('hidden');
-            
-            // Show Intro or Dashboard based on your existing flow
-            // (Assuming you have a function called initApp() or simply showing the dashboard)
-            document.getElementById('view-dashboard').classList.remove('hidden'); 
-            
-            // --- SHOW ADMIN BUTTONS ---
-            if (userRole === 'admin') {
-                const inviteBtn = document.getElementById('btn-invite-user');
-                if (inviteBtn) inviteBtn.classList.remove('hidden');
-            }
-            
-            // Load Jobs
-            if (typeof loadJobs === 'function') loadJobs();
-        }
+    console.log("🚀 Entering App...");
+
+    // Helper function to safely hide elements without crashing
+    const safeHide = (id) => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('hidden');
+    };
+
+    // 1. SAFELY HIDE All Overlays
+    safeHide('view-auth');
+    safeHide('view-scanner');
+    safeHide('view-crop');
+    safeHide('add-menu-modal');
+    safeHide('view-intro'); // Just in case you use this later
+
+    // 2. SHOW Main App Components
+    const appHeader = document.getElementById('app-header');
+    const viewJobs = document.getElementById('view-jobs');
+    
+    // Ensure these exist before removing 'hidden'
+    if (appHeader) appHeader.classList.remove('hidden');
+    if (viewJobs) viewJobs.classList.remove('hidden');
+
+    // 3. Setup UI based on Role
+    if (typeof userRole !== 'undefined' && userRole === 'admin') {
+        const inviteBtn = document.getElementById('btn-invite-user');
+        if (inviteBtn) inviteBtn.classList.remove('hidden');
+    }
+    
+    // 4. Load Data
+    if (typeof loadJobs === 'function') {
+        loadJobs();
+    }
+}
 
         function copyInviteLink() {
             // Current URL + ?mode=signup
@@ -2999,6 +3017,7 @@
     </script>
 </body>
 </html>
+
 
 
 
