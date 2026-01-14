@@ -338,15 +338,22 @@
                     <i data-lucide="sliders-horizontal" class="w-3 h-3 text-emerald-400"></i>
                     Stamp Cleanup
                 </span>
-                <span id="slider-value-display" class="text-[10px] font-mono text-emerald-400 bg-emerald-900/30 px-1.5 py-0.5 rounded border border-emerald-900/50">150</span>
+                
+                <div class="flex items-center gap-2">
+                    <span id="slider-value-display" class="text-[10px] font-mono text-emerald-400 bg-emerald-900/30 px-1.5 py-0.5 rounded border border-emerald-900/50">150</span>
+                    
+                    <button onclick="deleteSelectedStamp()" class="p-1.5 bg-red-900/30 hover:bg-red-500 text-red-400 hover:text-white rounded-md border border-red-900/50 transition-colors" title="Remove Stamp">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                    </button>
+                </div>
             </div>
-        
+            
             <div class="relative w-full py-1">
                 <input type="range" id="stamp-threshold" min="1" max="255" value="150" 
                        class="w-full h-1.5 bg-gray-700 rounded-full appearance-none cursor-pointer accent-emerald-500 hover:accent-emerald-400 transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
                        oninput="updateStampThreshold(this.value); document.getElementById('slider-value-display').innerText = this.value">
             </div>
-        
+            
             <div class="flex justify-between text-[10px] font-medium text-gray-500 uppercase tracking-tight">
                 <span class="flex items-center gap-1"><i data-lucide="minus" class="w-3 h-3"></i> Keep Detail</span>
                 <span class="flex items-center gap-1">Remove Background <i data-lucide="plus" class="w-3 h-3"></i></span>
@@ -2048,8 +2055,32 @@
             }
         }
 
+        
+
         function hideStampSlider() {
             document.getElementById('stamp-slider-container').classList.add('hidden');
+        }
+
+        function deleteSelectedStamp() {
+            if (!fabricCanvas) return;
+
+            const activeObj = fabricCanvas.getActiveObject();
+            
+            if (activeObj && activeObj.type === 'image') {
+                // 1. Remove from Canvas
+                fabricCanvas.remove(activeObj);
+                fabricCanvas.discardActiveObject(); // Clear selection
+                fabricCanvas.requestRenderAll();    // Refresh view
+                
+                // 2. Hide the Settings Panel immediately
+                const slider = document.getElementById('stamp-slider-container');
+                if (slider) {
+                    slider.classList.add('hidden');
+                    // Reset position
+                    slider.classList.remove('top-24');
+                    slider.classList.add('bottom-36');
+                }
+            }
         }
 
         let isProcessingSlider = false;
@@ -2639,6 +2670,7 @@
     </script>
 </body>
 </html>
+
 
 
 
