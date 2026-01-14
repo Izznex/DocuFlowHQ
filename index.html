@@ -558,22 +558,31 @@
         let userRole = 'user'; // 'admin' or 'user'
         
         async function initAuthSystem() {
-            // 1. Hide App, Show Auth Screen
-            document.getElementById('view-auth').classList.remove('hidden');
-            // Assuming your main app wrapper has an ID like 'app-container' or just body content
-            // Ideally, wrap your entire existing app in a <div id="app-main" class="hidden">
-            const mainApp = document.getElementById('view-dashboard') || document.getElementById('view-intro'); 
-            if(mainApp) mainApp.classList.add('hidden');
+            // 1. SAFETY CHECK: Is the database ready?
+            if (!db) {
+                console.log("⏳ Database not ready. Retrying in 500ms...");
+                setTimeout(initAuthSystem, 500); // Retry after 0.5 seconds
+                return;
+            }
         
-            // 2. Check Auth State
+            // 2. Hide Main App, Show Auth Screen
+            document.getElementById('view-auth').classList.remove('hidden');
+            const mainAppHeader = document.getElementById('app-header');
+            const mainAppView = document.getElementById('view-jobs');
+            
+            if(mainAppHeader) mainAppHeader.classList.add('hidden');
+            if(mainAppView) mainAppView.classList.add('hidden');
+        
+            // 3. Listen for Auth Changes
             firebase.auth().onAuthStateChanged(async (user) => {
                 if (user) {
-                    // User is logged in
+                    // --- USER IS LOGGED IN ---
                     currentUser = user;
                     await loadUserProfile(user.uid);
                     enterApp();
                 } else {
-                    // No user. Check if system is fresh (0 users)
+                    // --- NO USER ---
+                    // Check if system is fresh (0 users)
                     checkSystemStatus();
                 }
             });
@@ -2973,6 +2982,7 @@
     </script>
 </body>
 </html>
+
 
 
 
