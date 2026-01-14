@@ -1032,90 +1032,79 @@
         }
 
         function updateStorageUI() {
-            // 1. SAFE LIMIT DEFINITION
+            // 1. SAFETY DEFAULTS
             const limitMB = (typeof STORAGE_LIMIT_MB !== 'undefined' && !isNaN(STORAGE_LIMIT_MB)) ? STORAGE_LIMIT_MB : 100;
             
+            // Helper: Safely get bytes from any doc object
+            const getDocBytes = (doc) => {
+                // If it's a raw number, use it
+                if (typeof doc.size === 'number') return doc.size;
+                
+                // If it's a string number ("12345"), parse it
+                if (typeof doc.size === 'string' && !isNaN(parseFloat(doc.size))) {
+                    return parseFloat(doc.size);
+                }
+        
+                // If size is totally missing, try to guess from the source data (Fallback)
+                if (doc.src && typeof doc.src === 'string' && doc.src.startsWith('data:')) {
+                    const base64Length = doc.src.length;
+                    const padding = (doc.src.endsWith('==')) ? 2 : (doc.src.endsWith('=')) ? 1 : 0;
+                    return (base64Length * 0.75) - padding;
+                }
+        
+                return 0; // If we really can't figure it out, count as 0
+            };
+        
             let totalBytes = 0;
         
+            // 2. CALCULATION LOOP
             if (typeof jobs !== 'undefined' && Array.isArray(jobs)) {
                 jobs.forEach(job => {
-                    if (job.isArchived) return; // Skip archived jobs
+                    // A. Skip entire job if it's archived (Ghost job)
+                    if (job.isArchived) return; 
         
                     if (job.documents && Array.isArray(job.documents)) {
                         job.documents.forEach(doc => {
-                            // Skip offline placeholders
+                            // B. Skip individual doc if it's offline (Ghost file)
                             if (doc.isOffline) return;
         
-                            // A. Try to get the stored size property first
-                            let size = parseFloat(doc.size);
-                            
-                            // B. FALLBACK: Calculate size based on data type if stored size is missing
-                            if ((isNaN(size) || size === 0) && doc.src) {
-                                
-                                // Case 1: Raw Binary (Uint8Array) - From Archives
-                                if (doc.src instanceof Uint8Array || doc.src instanceof ArrayBuffer) {
-                                    size = doc.src.byteLength;
-                                }
-                                // Case 2: Blob Object - From Fresh Scans (sometimes)
-                                else if (doc.src instanceof Blob) {
-                                    size = doc.src.size;
-                                }
-                                // Case 3: Strings
-                                else if (typeof doc.src === 'string') {
-                                    if (doc.src.startsWith('data:')) {
-                                        // Base64 Data URI: Needs the 0.75 correction
-                                        const base64Length = doc.src.length;
-                                        const padding = (doc.src.endsWith('==')) ? 2 : (doc.src.endsWith('=')) ? 1 : 0;
-                                        size = (base64Length * 0.75) - padding;
-                                    } else {
-                                        // 'blob:' URL: Impossible to calculate synchronously.
-                                        // We rely on doc.size being saved during creation.
-                                        // If missing, we count 0 to prevent UI errors.
-                                        size = 0; 
-                                    }
-                                }
-                            }
-                            
-                            // C. Add to total
-                            if (!isNaN(size) && size > 0) {
-                                totalBytes += size;
-                            }
+                            // C. Add valid size
+                            totalBytes += getDocBytes(doc);
                         });
                     }
                 });
             }
         
-            // 3. SAFE MATH
+            // 3. UPDATE DOM
             const usedMB = totalBytes / (1024 * 1024);
+            let percentage = (limitMB > 0) ? (usedMB / limitMB) * 100 : 0;
             
-            // Percentage Calculation
-            let percentage = 0;
-            if (limitMB > 0) {
-                percentage = (usedMB / limitMB) * 100;
-            }
+            // Safety clamp (0% to 100%)
             percentage = Math.min(100, Math.max(0, percentage));
         
-            // 4. UI UPDATES
             const textEl = document.getElementById('storage-text');
             if(textEl) {
                 textEl.textContent = `${usedMB.toFixed(1)} MB / ${limitMB} MB`;
             }
-            
+        
             const bar = document.getElementById('storage-bar');
             if(bar) {
                 bar.style.width = `${percentage}%`;
+                
+                // Reset classes to ensure clean transition
                 bar.className = "h-full transition-all duration-500";
                 
-                if(percentage > 90) bar.classList.add('bg-red-500'); 
-                else if (percentage > 70) bar.classList.add('bg-yellow-500'); 
-                else bar.classList.add('bg-emerald-500'); 
+                // Apply Color
+                if(percentage > 90) bar.classList.add('bg-red-500');
+                else if(percentage > 70) bar.classList.add('bg-yellow-500');
+                else bar.classList.add('bg-emerald-500');
             }
-            
-            // 5. ALERT BOX
+        
+            // Archive Warning
             const alertBox = document.getElementById('archive-alert');
             if(alertBox) {
-                if(percentage >= 80) alertBox.classList.remove('hidden'); 
-                else alertBox.classList.add('hidden'); 
+                if(percentage >= 80) alertBox.classList.remove('hidden');
+                else alertBox.classList.add('hidden');
             }
         }
         
@@ -3528,6 +3517,7 @@
     </script>
 </body>
 </html>
+
 
 
 
