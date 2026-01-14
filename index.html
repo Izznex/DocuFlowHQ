@@ -44,24 +44,65 @@
 </head>
 <body class="bg-gray-900 text-white h-screen w-screen overflow-hidden font-sans antialiased selection:bg-emerald-500/30">
 
-    <canvas id="processing-canvas" class="hidden"></canvas>
+    <div id="view-auth" class="fixed inset-0 z-[100] bg-gray-900 flex items-center justify-center p-4">
+        <div class="bg-gray-800 w-full max-w-md p-8 rounded-2xl border border-gray-700 shadow-2xl">
+            
+            <div class="text-center mb-8">
+                <div class="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-emerald-500/20">
+                    <i data-lucide="shield-check" class="w-8 h-8 text-emerald-500"></i>
+                </div>
+                <h2 id="auth-title" class="text-2xl font-bold text-white">System Login</h2>
+                <p id="auth-subtitle" class="text-gray-400 text-sm mt-2">Please sign in to access documents.</p>
+            </div>
 
+            <div class="space-y-4">
+                <div>
+                    <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">Email</label>
+                    <input type="email" id="auth-email" class="w-full bg-gray-900 text-white border border-gray-700 rounded-lg p-3 mt-1 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" placeholder="user@company.com">
+                </div>
+                <div>
+                    <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">Password</label>
+                    <input type="password" id="auth-password" class="w-full bg-gray-900 text-white border border-gray-700 rounded-lg p-3 mt-1 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" placeholder="••••••">
+                </div>
+                
+                <button onclick="handleAuthAction()" id="btn-auth-action" class="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-lg shadow-lg shadow-emerald-500/20 transition-all active:scale-95 flex justify-center items-center gap-2">
+                    <span id="btn-auth-text">Sign In</span>
+                    <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                </button>
+            </div>
+            
+            <div id="auth-loading" class="hidden text-center mt-4">
+                <div class="loader mx-auto w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+        </div>
+    </div>
+
+    <canvas id="processing-canvas" class="hidden"></canvas>
     <input type="file" id="doc-upload-input" accept="image/*,application/pdf" class="hidden" onchange="handleDocUpload(this)">
 
-    <header class="fixed top-0 w-full z-50 bg-gray-900/90 backdrop-blur border-b border-gray-800 p-4 flex justify-between items-center h-16 hardware-accel">
+    <header id="app-header" class="fixed top-0 w-full z-50 bg-gray-900/90 backdrop-blur border-b border-gray-800 p-4 flex justify-between items-center h-16 hardware-accel hidden">
         <div class="flex items-center gap-2">
             <i data-lucide="layers" class="text-emerald-400"></i>
             <h1 class="font-bold text-lg tracking-wide">DocuFlow</h1>
         </div>
         <div class="flex gap-2">
+            
+            <button id="btn-invite-user" onclick="copyInviteLink()" class="hidden text-xs bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500 hover:text-white px-3 py-1.5 rounded-full border border-indigo-500/30 flex items-center gap-1 active:scale-95 transition-all" title="Invite New User">
+                <i data-lucide="user-plus" class="w-3 h-3"></i> Invite
+            </button>
+
             <input type="file" id="archive-upload" accept=".cbor,.json" class="hidden" onchange="handleArchiveUpload(this)">
             <button onclick="document.getElementById('archive-upload').click()" class="text-xs bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-full border border-gray-700 text-gray-400 flex items-center gap-1 active:scale-95 transition-transform">
                 <i data-lucide="archive-restore" class="w-3 h-3"></i> Archive
             </button>
+
+            <button onclick="logout()" class="text-xs bg-red-900/20 hover:bg-red-900/50 text-red-400 px-3 py-1.5 rounded-full border border-red-900/30 flex items-center gap-1 active:scale-95 transition-transform">
+                 <i data-lucide="log-out" class="w-3 h-3"></i>
+            </button>
         </div>
     </header>
 
-    <main id="view-jobs" class="pt-20 pb-24 px-4 h-full overflow-y-auto relative hardware-accel">
+    <main id="view-jobs" class="hidden pt-20 pb-24 px-4 h-full overflow-y-auto relative hardware-accel">
         <div class="bg-gray-800/50 rounded-lg p-3 mb-6 border border-gray-700">
             <div class="flex justify-between items-end mb-2">
                 <span class="text-xs text-gray-400 font-medium">Storage Usage</span>
@@ -513,6 +554,150 @@
         let pendingDeleteType = 'doc'; // 'doc' or 'job'
         let isStampMode = false;
 
+        let currentUser = null;
+        let userRole = 'user'; // 'admin' or 'user'
+        
+        async function initAuthSystem() {
+            // 1. Hide App, Show Auth Screen
+            document.getElementById('view-auth').classList.remove('hidden');
+            // Assuming your main app wrapper has an ID like 'app-container' or just body content
+            // Ideally, wrap your entire existing app in a <div id="app-main" class="hidden">
+            const mainApp = document.getElementById('view-dashboard') || document.getElementById('view-intro'); 
+            if(mainApp) mainApp.classList.add('hidden');
+        
+            // 2. Check Auth State
+            firebase.auth().onAuthStateChanged(async (user) => {
+                if (user) {
+                    // User is logged in
+                    currentUser = user;
+                    await loadUserProfile(user.uid);
+                    enterApp();
+                } else {
+                    // No user. Check if system is fresh (0 users)
+                    checkSystemStatus();
+                }
+            });
+        }
+        
+        async function checkSystemStatus() {
+            const title = document.getElementById('auth-title');
+            const subtitle = document.getElementById('auth-subtitle');
+            const btnText = document.getElementById('btn-auth-text');
+            
+            // Check URL params for invite
+            const urlParams = new URLSearchParams(window.location.search);
+            const isInvite = urlParams.get('mode') === 'signup';
+        
+            if (isInvite) {
+                // INVITE MODE
+                title.innerText = "Join Team";
+                subtitle.innerText = "Create your account to join.";
+                btnText.innerText = "Create Account";
+                document.getElementById('btn-auth-action').setAttribute('data-mode', 'signup');
+                return;
+            }
+        
+            // CHECK DB FOR ZERO USERS
+            const usersSnap = await db.collection('users').limit(1).get();
+            
+            if (usersSnap.empty) {
+                // ZERO USERS -> ADMIN SETUP MODE
+                title.innerText = "System Setup";
+                subtitle.innerText = "No users detected. Create the Admin account.";
+                btnText.innerText = "Register Admin";
+                document.getElementById('btn-auth-action').setAttribute('data-mode', 'register-admin');
+            } else {
+                // NORMAL LOGIN MODE
+                title.innerText = "System Login";
+                subtitle.innerText = "Please sign in to continue.";
+                btnText.innerText = "Sign In";
+                document.getElementById('btn-auth-action').setAttribute('data-mode', 'login');
+            }
+        }
+        
+        async function handleAuthAction() {
+            const email = document.getElementById('auth-email').value;
+            const password = document.getElementById('auth-password').value;
+            const mode = document.getElementById('btn-auth-action').getAttribute('data-mode');
+            
+            if (!email || !password) return alert("Please fill in all fields");
+            if (password.length < 6) return alert("Password must be at least 6 characters");
+        
+            document.getElementById('btn-auth-text').innerText = "Processing...";
+            document.getElementById('auth-loading').classList.remove('hidden');
+        
+            try {
+                if (mode === 'login') {
+                    // --- LOGIN ---
+                    await firebase.auth().signInWithEmailAndPassword(email, password);
+                    // onAuthStateChanged will handle the rest
+                } 
+                else if (mode === 'register-admin' || mode === 'signup') {
+                    // --- REGISTER ---
+                    const userCred = await firebase.auth().createUserWithEmailAndPassword(email, password);
+                    const role = (mode === 'register-admin') ? 'admin' : 'user';
+                    
+                    // Create User Profile in Firestore
+                    await db.collection('users').doc(userCred.user.uid).set({
+                        email: email,
+                        role: role,
+                        createdAt: new Date().toISOString()
+                    });
+                    
+                    alert(role === 'admin' ? "Admin Account Created!" : "Account Created!");
+                    // Clean URL if it was an invite
+                    if (mode === 'signup') window.history.replaceState({}, document.title, "/");
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Error: " + err.message);
+                document.getElementById('btn-auth-text').innerText = (mode === 'login' ? "Sign In" : "Register");
+                document.getElementById('auth-loading').classList.add('hidden');
+            }
+        }
+        
+        async function loadUserProfile(uid) {
+            const doc = await db.collection('users').doc(uid).get();
+            if (doc.exists) {
+                userRole = doc.data().role;
+            }
+        }
+        
+        function enterApp() {
+            // Hide Auth, Show App
+            document.getElementById('view-auth').classList.add('hidden');
+            
+            // Show Intro or Dashboard based on your existing flow
+            // (Assuming you have a function called initApp() or simply showing the dashboard)
+            document.getElementById('view-dashboard').classList.remove('hidden'); 
+            
+            // --- SHOW ADMIN BUTTONS ---
+            if (userRole === 'admin') {
+                const inviteBtn = document.getElementById('btn-invite-user');
+                if (inviteBtn) inviteBtn.classList.remove('hidden');
+            }
+            
+            // Load Jobs
+            if (typeof loadJobs === 'function') loadJobs();
+        }
+
+        function copyInviteLink() {
+            // Current URL + ?mode=signup
+            const baseUrl = window.location.href.split('?')[0];
+            const inviteUrl = `${baseUrl}?mode=signup`;
+            
+            navigator.clipboard.writeText(inviteUrl).then(() => {
+                alert("📋 Invite Link Copied!\n\nShare this link to allow a new user to sign up:\n" + inviteUrl);
+            }).catch(err => {
+                prompt("Copy this link:", inviteUrl);
+            });
+        }
+        
+        function logout() {
+            firebase.auth().signOut().then(() => {
+                window.location.reload(); // Simplest way to reset state
+            });
+        }
         // --- 2. HELPERS (Must be first) ---
         function parseSizeToBytes(sizeStr) {
             if(!sizeStr) return 0;
@@ -2768,8 +2953,18 @@
             const initUI = setInterval(() => {
                 if(typeof lucide !== 'undefined') {
                     lucide.createIcons();
+                    
+                    // 1. Initialize Backend Connection
                     initFirebase(); 
+                    
+                    // 2. Setup Paste (Global listener)
                     setupPasteListener();
+                    
+                    // 3. START AUTH SYSTEM (The new gatekeeper)
+                    // This will check if the user is logged in and toggle 
+                    // between the Login View and the Main App View.
+                    initAuthSystem();
+                    
                     clearInterval(initUI);
                 }
             }, 100);
@@ -2778,6 +2973,7 @@
     </script>
 </body>
 </html>
+
 
 
 
