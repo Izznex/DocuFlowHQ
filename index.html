@@ -1036,56 +1036,65 @@
             if (!pendingDeleteId) return;
             
             const btn = document.getElementById('btn-confirm-delete');
+            const originalText = btn.innerHTML; // Save label
             btn.innerHTML = '<div class="loader w-4 h-4 border-t-white"></div>';
             
             try {
+                // 1. DATABASE UPDATE
                 if (db) {
                     if (pendingDeleteType === 'job') {
+                        // Delete Job (No changes needed here)
                         const jobRef = db.collection('jobs').doc(pendingDeleteId);
                         const snapshot = await jobRef.collection('scans').get();
                         const batch = db.batch();
-                        
                         snapshot.docs.forEach(doc => { batch.delete(doc.ref); });
                         batch.delete(jobRef);
-                        
                         await batch.commit();
                     } else {
+                        // --- DOCUMENT DELETION FIX ---
                         const jobRef = db.collection('jobs').doc(currentJobId);
-                        const job = jobs.find(j => j.id === currentJobId);
-                        const docToDelete = job.documents.find(d => d.id === pendingDeleteId);
                         
-                        if (docToDelete) {
-                            await jobRef.update({
-                                documents: firebase.firestore.FieldValue.arrayRemove(docToDelete)
-                            });
-                            await jobRef.collection('scans').doc(pendingDeleteId).delete();
+                        // A. Get the current list from server
+                        const jobSnap = await jobRef.get();
+                        
+                        if (jobSnap.exists) {
+                            const currentDocs = jobSnap.data().documents || [];
+                            
+                            // B. Filter out the item by ID (Ignores extra 'src' or 'selected' properties)
+                            const updatedDocs = currentDocs.filter(d => d.id !== pendingDeleteId);
+                            
+                            // C. Update the main list
+                            await jobRef.update({ documents: updatedDocs });
+                            
+                            // D. Delete the sub-collection image binary
+                            await jobRef.collection('scans').doc(pendingDeleteId).delete().catch(e => console.warn("Image delete warning:", e));
                         }
                     }
+                } 
+                
+                // 2. LOCAL UI UPDATE (Crucial for instant feedback)
+                if (pendingDeleteType === 'job') {
+                    jobs = jobs.filter(j => j.id !== pendingDeleteId);
+                    if(currentJobId === pendingDeleteId) closeJobDetails();
+                    renderJobs();
+                    alert("Job deleted successfully.");
                 } else {
-                    if (pendingDeleteType === 'job') {
-                        jobs = jobs.filter(j => j.id !== pendingDeleteId);
-                        renderJobs();
-                    } else {
-                        const job = jobs.find(j => j.id === currentJobId);
-                        const idx = job.documents.findIndex(d => d.id === pendingDeleteId);
-                        if (idx > -1) job.documents.splice(idx, 1);
+                    // Find the current job in memory
+                    const job = jobs.find(j => j.id === currentJobId);
+                    if (job && job.documents) {
+                        // Remove the doc from the local array
+                        job.documents = job.documents.filter(d => d.id !== pendingDeleteId);
+                        // Refresh the view
+                        renderDocumentList(job);
                     }
                 }
 
                 closeDeleteModal();
-                
-                if (pendingDeleteType === 'job') {
-                    closeJobDetails();
-                    alert("Job deleted successfully.");
-                } else {
-                    if (currentJobId) {
-                        const updatedJob = jobs.find(j => j.id === currentJobId);
-                        renderDocumentList(updatedJob);
-                    }
-                }
+
             } catch (err) {
                 console.error("Delete failed:", err);
                 alert("Failed to delete. Please check connection.");
+                btn.innerHTML = originalText;
                 closeDeleteModal();
             }
         }
@@ -2381,6 +2390,7 @@
     </script>
 </body>
 </html>
+
 
 
 
