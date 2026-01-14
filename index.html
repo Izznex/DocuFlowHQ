@@ -92,8 +92,13 @@
             </button>
     
             <input type="file" id="archive-upload" accept=".cbor,.json" class="hidden" onchange="handleArchiveUpload(this)">
-            <button id="btn-archive" onclick="document.getElementById('archive-upload').click()" class="hidden text-xs bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-full border border-gray-700 text-gray-400 flex items-center gap-1 active:scale-95 transition-transform">
-                <i data-lucide="archive-restore" class="w-3 h-3"></i> Archive
+    
+            <button id="btn-archive" onclick="archiveClosedJobs()" class="hidden text-xs bg-yellow-900/20 hover:bg-yellow-900/50 text-yellow-500 px-3 py-1.5 rounded-full border border-yellow-700/50 flex items-center gap-1 active:scale-95 transition-transform">
+                <i data-lucide="archive" class="w-3 h-3"></i> Archive
+            </button>
+            
+            <button id="btn-manual-restore" onclick="document.getElementById('archive-upload').click()" class="hidden text-xs bg-gray-800 hover:bg-gray-700 text-gray-400 px-2 py-1.5 rounded-full border border-gray-700 active:scale-95 transition-transform" title="Manual Restore">
+                <i data-lucide="upload-cloud" class="w-3 h-3"></i>
             </button>
     
             <button onclick="logout()" class="text-xs bg-red-900/20 hover:bg-red-900/50 text-red-400 px-3 py-1.5 rounded-full border border-red-900/30 flex items-center gap-1 active:scale-95 transition-transform">
@@ -799,18 +804,21 @@
             if (typeof userRole !== 'undefined' && userRole === 'admin') {
                 const teamBtn = document.getElementById('btn-team-manager');
                 const archiveBtn = document.getElementById('btn-archive');
-                const archiveAlert = document.getElementById('archive-alert'); // The yellow "Cleanup Recommended" box
-        
+                const restoreBtn = document.getElementById('btn-manual-restore'); // <--- NEW
+                const archiveAlert = document.getElementById('archive-alert');
+            
                 if (teamBtn) teamBtn.classList.remove('hidden');
                 if (archiveBtn) archiveBtn.classList.remove('hidden');
-                if (archiveAlert) archiveAlert.classList.remove('hidden'); // Only admins see the cleanup warning
+                if (restoreBtn) restoreBtn.classList.remove('hidden'); // <--- NEW
+                if (archiveAlert) archiveAlert.classList.remove('hidden');
             } else {
                 // Double check they are hidden for non-admins
                 safeHide('btn-team-manager');
                 safeHide('btn-archive');
+                safeHide('btn-manual-restore'); // <--- NEW
                 safeHide('archive-alert'); 
             }
-        
+                    
             // 4. Load Data
             if (typeof loadJobsFromFirestore === 'function') {
                 loadJobsFromFirestore();
@@ -3388,6 +3396,7 @@
     </script>
 </body>
 </html>
+
 
 
 
