@@ -2124,22 +2124,41 @@
 
         function openEditor(imageInput) {
             document.getElementById('view-editor').classList.remove('hidden');
+            
             const container = document.getElementById('view-editor').querySelector('.flex-1');
             const canvasWrapper = document.getElementById('canvas-wrapper');
-            const maxWidth = container.clientWidth - 40; const maxHeight = container.clientHeight - 40;
+            const maxWidth = container.clientWidth - 40; 
+            const maxHeight = container.clientHeight - 40;
             
+            // Reset Canvas
             if (fabricCanvas) { try { fabricCanvas.dispose(); } catch (e) {} fabricCanvas = null; }
             canvasWrapper.innerHTML = '<canvas id="fabric-canvas"></canvas>';
             
             fabricCanvas = new fabric.Canvas('fabric-canvas');
-            currentFilterIndex = 0; document.getElementById('filter-label').textContent = 'Original';
+            
+            // --- DELETED THE BROKEN FILTER LINES HERE --- 
+            
             let dataUrl = (typeof imageInput === 'string') ? imageInput : imageInput.toDataURL();
             
             fabric.Image.fromURL(dataUrl, function(img) {
                 const scale = Math.min(maxWidth / img.width, maxHeight / img.height);
-                fabricCanvas.setWidth(img.width * scale); fabricCanvas.setHeight(img.height * scale);
-                img.set({ originX: 'center', originY: 'center', left: fabricCanvas.width / 2, top: fabricCanvas.height / 2, scaleX: scale, scaleY: scale, selectable: false, evented: false });
-                fabricCanvas.add(img); fabricCanvas.backgroundImage = img; fabricCanvas.renderAll();
+                fabricCanvas.setWidth(img.width * scale); 
+                fabricCanvas.setHeight(img.height * scale);
+                
+                img.set({ 
+                    originX: 'center', 
+                    originY: 'center', 
+                    left: fabricCanvas.width / 2, 
+                    top: fabricCanvas.height / 2, 
+                    scaleX: scale, 
+                    scaleY: scale, 
+                    selectable: false, 
+                    evented: false 
+                });
+                
+                fabricCanvas.add(img); 
+                fabricCanvas.backgroundImage = img; 
+                fabricCanvas.renderAll();
                 initFabricListeners();
             });
         }
@@ -2540,6 +2559,7 @@
     </script>
 </body>
 </html>
+
 
 
 
