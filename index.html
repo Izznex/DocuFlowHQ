@@ -1314,21 +1314,59 @@
         function captureDoc() {
             if (!video || !video.videoWidth) return;
 
-            // 1. Capture High-Res Frame
-            const canvas = document.createElement('canvas');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            const ctx = canvas.getContext('2d');
+            // 1. Prepare the Canvas
+            const fullCanvas = document.createElement('canvas');
+            fullCanvas.width = video.videoWidth;
+            fullCanvas.height = video.videoHeight;
+            const fullCtx = fullCanvas.getContext('2d');
             
-            // Draw current video frame to canvas
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            // Flip horizontal if using front camera (optional, usually for selfies)
+            // fullCtx.translate(fullCanvas.width, 0);
+            // fullCtx.scale(-1, 1);
             
-            // 2. Convert to Image URL
-            const fullImageSrc = canvas.toDataURL('image/jpeg', 0.95); 
+            fullCtx.drawImage(video, 0, 0, fullCanvas.width, fullCanvas.height);
+            
+            // 2. Get the Image Data
+            const fullImageSrc = fullCanvas.toDataURL('image/jpeg', 0.95);
+            
+            // 3. Traffic Control: Where does this image go?
+            if (isStampMode) {
+                // --- A. STAMP MODE ---
+                // We are capturing a stamp (signature/chop)
+                captureSource = 'camera'; 
+                
+                // Close the scanner view immediately
+                document.getElementById('view-scanner').classList.add('hidden');
+                
+                // Stop camera stream to save battery
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                    stream = null;
+                }
 
-            // 3. Send to Cropper (Pass null for corners so it defaults to full box)
-            // The user will drag the corners manually
-            (fullImageSrc, null);
+                // Open Crop View specifically for stamps
+                openCropView(fullImageSrc, null); // Pass null for corners since we don't auto-detect stamps usually
+
+            } else {
+                // --- B. DOCUMENT MODE ---
+                // We are capturing a regular document page
+                captureSource = 'camera'; 
+                
+                // If we are in "Batch Mode", just add to queue
+                // (Assuming you might add batch mode logic here later)
+                
+                // For now, standard single capture flow:
+                document.getElementById('view-scanner').classList.add('hidden');
+                
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                    stream = null;
+                }
+                
+                // Detect corners (optional) or just open crop
+                // For speed, we just open crop view
+                openCropView(fullImageSrc, null); 
+            }
         }
         // --- CROPPER STATE ---
         let cropPoints = []; 
@@ -2734,6 +2772,7 @@
     </script>
 </body>
 </html>
+
 
 
 
