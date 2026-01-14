@@ -91,7 +91,7 @@
                 <i data-lucide="users" class="w-3 h-3"></i> Team
             </button>
     
-            <input type="file" id="archive-upload" accept=".cbor,.json" class="hidden" onchange="handleArchiveUpload(this)">
+            <input type="file" id="archive-upload" accept=".cbor,.json" class="hidden" onchange="(this)">
     
             <button id="btn-archive" onclick="archiveClosedJobs()" class="hidden text-xs bg-yellow-900/20 hover:bg-yellow-900/50 text-yellow-500 px-3 py-1.5 rounded-full border border-yellow-700/50 flex items-center gap-1 active:scale-95 transition-transform">
                 <i data-lucide="archive" class="w-3 h-3"></i> Archive
@@ -3200,7 +3200,7 @@
             }
         }
         
-        function handleArchiveUpload(input) {
+       function handleArchiveUpload(input) {
             if (!input.files || !input.files[0]) return;
             const file = input.files[0];
             const reader = new FileReader();
@@ -3216,23 +3216,20 @@
                     
                     if (!data || !data.jobs) throw new Error("Invalid file");
         
-                    // --- STRATEGY: HYDRATION ---
-                    // We don't just replace the list. We look for matches in the current view.
-                    
+                    // --- HYDRATION LOGIC ---
                     let restoreCount = 0;
                     
-                    // 1. Loop through loaded jobs
+                    // 1. Update Memory
                     data.jobs.forEach(loadedJob => {
-                        // Find matching placeholder in our current memory (archivedJobs)
                         const placeholderJob = archivedJobs.find(j => j.id === loadedJob.id);
                         
                         if (placeholderJob) {
-                            // Match found! Inject images.
                             loadedJob.documents.forEach(loadedDoc => {
                                 const placeholderDoc = placeholderJob.documents.find(d => d.id === loadedDoc.id);
+                                // Only update if we actually have data to restore
                                 if (placeholderDoc && loadedDoc.src) {
-                                    placeholderDoc.src = loadedDoc.src; // RESTORE IMAGE TO MEMORY
-                                    placeholderDoc.isOffline = false;   // REMOVE OFFLINE FLAG
+                                    placeholderDoc.src = loadedDoc.src; // Inject Binary Data
+                                    placeholderDoc.isOffline = false;   // Clear Offline Flag
                                     restoreCount++;
                                 }
                             });
@@ -3240,15 +3237,24 @@
                     });
         
                     if (restoreCount > 0) {
+                        // --- CRITICAL FIX: REFRESH UI ---
+                        // If we are currently looking at a job, re-render the list immediately
+                        if (currentJobId) {
+                            const currentJob = archivedJobs.find(j => j.id === currentJobId);
+                            if (currentJob) {
+                                console.log("Refreshing UI for job:", currentJob.client);
+                                renderDocumentList(currentJob); // <--- THIS UPDATES THE ICONS/BADGES
+                            }
+                        }
+        
                         alert(`✅ Restored ${restoreCount} images from archive.`);
                         
-                        // If the user was trying to view a specific doc, open it now!
+                        // If the user clicked a specific doc to trigger this, open it now
                         if (viewingDocId) {
                             viewDocument(viewingDocId);
                         }
                     } else {
-                        // If no matches found, maybe they are just viewing an old archive normally
-                        // Only switch view if we aren't currently looking at a specific list
+                        // Normal Archive Load (View Mode)
                         isViewingArchive = true;
                         archivedJobs = data.jobs;
                         renderJobs();
@@ -3418,6 +3424,7 @@
     </script>
 </body>
 </html>
+
 
 
 
