@@ -2536,22 +2536,28 @@
                 }
             } 
             
-            // 4. UPDATE LOCAL VIEW
+            // 4. UPDATE LOCAL VIEW (With Duplicate Prevention)
             const job = jobs.find(j => j.id === currentJobId);
+            
+            // Ensure we have the binary source for immediate viewing
             newDoc.src = dataURL; 
             
             if (overwriteId) {
+                // OVERWRITE MODE: Find and update the existing index
                 const idx = job.documents.findIndex(d => d.id === overwriteId);
-                if (idx !== -1) job.documents[idx] = newDoc;
+                if (idx !== -1) {
+                    job.documents[idx] = newDoc;
+                }
             } else {
-                job.documents.push(newDoc);
+                // NEW FILE MODE: Check for duplicates before pushing!
+                // This prevents the "Double Ghost" issue if the listener runs fast.
+                const alreadyExists = job.documents.some(d => d.id === newDoc.id);
+                if (!alreadyExists) {
+                    job.documents.push(newDoc);
+                }
             }
+            
             renderDocumentList(job);
-        }
-        
-        function handleSearch() {
-            currentSearchTerm = document.getElementById('job-search').value.toLowerCase();
-            renderJobs();
         }
 
         async function archiveClosedJobs() {
@@ -2772,6 +2778,7 @@
     </script>
 </body>
 </html>
+
 
 
 
