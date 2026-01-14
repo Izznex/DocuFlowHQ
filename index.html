@@ -1307,7 +1307,7 @@
 
             // 3. Send to Cropper (Pass null for corners so it defaults to full box)
             // The user will drag the corners manually
-            openCropView(fullImageSrc, null);
+            (fullImageSrc, null);
         }
         // --- CROPPER STATE ---
         let cropPoints = []; 
@@ -1327,28 +1327,34 @@
 
             cropImgElement.src = imageSrc;
             
-            // Wait for image layout to calculate positions
+            // Wait for image to load
             cropImgElement.onload = () => {
-                // MATCH CANVAS TO IMAGE
-                // This ensures the drawing layer is exactly the same size as the visible image
-                // preventing "ghost touches" caused by empty space/padding.
-                const rect = cropImgElement.getBoundingClientRect();
-                
-                // Set internal resolution to match the capture resolution for sharpness
-                // OR match the screen resolution for performance.
-                // Here we match the visual size x Device Pixel Ratio for crisp lines
-                const dpr = window.devicePixelRatio || 1;
-                cropCanvas.width = rect.width * dpr;
-                cropCanvas.height = rect.height * dpr;
-                
-                // Force CSS to match
-                cropCanvas.style.width = rect.width + 'px';
-                cropCanvas.style.height = rect.height + 'px';
-                
-                // Initialize points relative to this new canvas size
-                initCropPoints(detectedCorners);
-                renderCropUI();
-                initCropListeners();
+                // RACE CONDITION FIX: 
+                // We use requestAnimationFrame twice to ensure the browser has 
+                // fully finished laying out the image in the center of the screen
+                // before we measure it.
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        // Position Canvas EXACTLY over the Image
+                        const rect = cropImgElement.getBoundingClientRect();
+                        
+                        // 1. Match Resolution (Internal)
+                        const dpr = window.devicePixelRatio || 1;
+                        cropCanvas.width = rect.width * dpr;
+                        cropCanvas.height = rect.height * dpr;
+                        
+                        // 2. Match Display Size & Position (CSS)
+                        cropCanvas.style.width = rect.width + 'px';
+                        cropCanvas.style.height = rect.height + 'px';
+                        cropCanvas.style.left = rect.left + 'px';
+                        cropCanvas.style.top = rect.top + 'px';
+                        
+                        // Initialize logic
+                        initCropPoints(detectedCorners);
+                        renderCropUI();
+                        initCropListeners();
+                    });
+                });
             };
         }
 
@@ -1361,16 +1367,33 @@
             const w = cropCanvas.width;
             const h = cropCanvas.height;
             
-            // Use 15% padding so corners aren't stuck to the edge
-            const padX = w * 0.15;
-            const padY = h * 0.15;
-            
-            cropPoints = [
-                { x: padX, y: padY },             // TL
-                { x: w - padX, y: padY },         // TR
-                { x: w - padX, y: h - padY },     // BR
-                { x: padX, y: h - padY }          // BL
-            ];
+            if (isStampMode) {
+                // --- STAMP MODE: SMALL CENTERED BOX ---
+                // Create a smaller box in the absolute center
+                // This is much better for small signatures
+                const boxSize = Math.min(w, h) * 0.4; // 40% of screen width
+                const centerX = w / 2;
+                const centerY = h / 2;
+                
+                cropPoints = [
+                    { x: centerX - boxSize/2, y: centerY - boxSize/2 }, // TL
+                    { x: centerX + boxSize/2, y: centerY - boxSize/2 }, // TR
+                    { x: centerX + boxSize/2, y: centerY + boxSize/2 }, // BR
+                    { x: centerX - boxSize/2, y: centerY + boxSize/2 }  // BL
+                ];
+            } else {
+                // --- DOCUMENT MODE: FULL PAGE BOX ---
+                // Use 15% padding from edges
+                const padX = w * 0.15;
+                const padY = h * 0.15;
+                
+                cropPoints = [
+                    { x: padX, y: padY },             // TL
+                    { x: w - padX, y: padY },         // TR
+                    { x: w - padX, y: h - padY },     // BR
+                    { x: padX, y: h - padY }          // BL
+                ];
+            }
         }
 
         function renderCropUI() {
@@ -2442,6 +2465,7 @@
     </script>
 </body>
 </html>
+
 
 
 
