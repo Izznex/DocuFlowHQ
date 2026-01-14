@@ -268,20 +268,6 @@
             </button>
         </div>
     </div>
-        <div class="h-32 bg-gray-900 flex items-center justify-around px-8 z-20 border-t border-gray-800">
-            <button onclick="closeScanner()" class="p-4 rounded-full bg-gray-800 text-gray-400 hover:text-white transition-colors">
-                <i data-lucide="x"></i>
-            </button>
-            
-            <button onclick="captureDoc()" class="w-20 h-20 rounded-full border-4 border-white flex items-center justify-center bg-transparent active:scale-90 transition-transform hover:bg-white/10">
-                <div class="w-16 h-16 bg-white rounded-full pointer-events-none"></div>
-            </button>
-            
-            <button onclick="triggerDocUpload()" class="p-4 rounded-full bg-gray-800 text-emerald-400 hover:bg-gray-700 transition-colors">
-                <i data-lucide="image"></i>
-            </button>
-        </div>
-    </div>
 
     <div id="view-crop" class="fixed inset-0 bg-black z-[80] hidden flex flex-col">
         <div class="relative flex-1 bg-black overflow-hidden flex items-center justify-center touch-none">
@@ -704,9 +690,13 @@
         if (inviteBtn) inviteBtn.classList.remove('hidden');
     }
     
-    // 4. Load Data
-    if (typeof loadJobs === 'function') {
-        loadJobs();
+   // 4. Load Data
+    // FIX: The function name is 'loadJobsFromFirestore', not 'loadJobs'
+    if (typeof loadJobsFromFirestore === 'function') {
+        console.log("📂 Starting Data Sync...");
+        loadJobsFromFirestore();
+    } else {
+        console.error("⚠️ Data loading function not found!");
     }
 }
 
@@ -3017,6 +3007,7 @@
     </script>
 </body>
 </html>
+
 
 
 
