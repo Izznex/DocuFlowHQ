@@ -496,6 +496,7 @@
         let batchQueue = []; 
         let isPdfBatch = false; 
         let pendingDeleteType = 'doc'; // 'doc' or 'job'
+        let isStampMode = false;
 
         // --- 2. HELPERS (Must be first) ---
         function parseSizeToBytes(sizeStr) {
@@ -1414,14 +1415,20 @@
             if (input.files && input.files[0]) {
                 const reader = new FileReader();
                 reader.onload = function(e) {
-                    processAndAddStamp(e.target.result); 
+                    // Set flag so applyCrop knows what to do later
+                    isStampMode = true; 
+                    
+                    // Send to the existing Crop View!
+                    // Pass null for corners to use default box
+                    openCropView(e.target.result, null); 
+                    
                     input.value = ''; 
                 };
                 reader.readAsDataURL(input.files[0]);
             }
         }
 
-      async function applyCrop() {
+     async function applyCrop() {
             const view = document.getElementById('view-crop');
             const btn = view.querySelector('button[onclick="applyCrop()"]');
             const originalBtnText = btn.innerHTML;
@@ -1436,30 +1443,6 @@
                 img.src = originalCaptureSrc;
                 await new Promise(r => img.onload = r);
 
-                // --- 1. ROBUST POINT SORTING (The Fix) ---
-                // We don't trust the order of cropPoints. We sort them geometrically.
-                // 1. Sort by Y to find the "Top" 2 and "Bottom" 2
-                // 2. Sort those pairs by X to find Left and Right
-                
-                // Clone points to valid scaling calculations
-                const rawPoints = cropPoints.map(p => ({ x: p.x, y: p.y }));
-                
-                // Sort by Y (Ascending)
-                rawPoints.sort((a, b) => a.y - b.y);
-                
-                // Grab Top 2 and Bottom 2
-                const topRow = rawPoints.slice(0, 2).sort((a, b) => a.x - b.x);
-                const bottomRow = rawPoints.slice(2, 4).sort((a, b) => a.x - b.x);
-                
-                // Final Order: TL, TR, BR, BL (Standard for OpenCV Warping)
-                const sortedPoints = [
-                    topRow[0],      // Top-Left
-                    topRow[1],      // Top-Right
-                    bottomRow[1],   // Bottom-Right (Note: OpenCV expects BR as 3rd point usually)
-                    bottomRow[0]    // Bottom-Left
-                ];
-
-                // --- 2. Setup OpenCV ---
                 const tempCanvas = document.createElement('canvas');
                 tempCanvas.width = img.width;
                 tempCanvas.height = img.height;
@@ -1469,11 +1452,22 @@
                 let src = cv.imread(tempCanvas);
                 let warped = new cv.Mat();
                 
-                // Map screen coordinates to real image size
+                // --- 1. GEOMETRIC SORTING (Fixes "Wonky" Crops) ---
+                // We disregard the order of the drag points and sort them spatially:
+                // [Top-Left, Top-Right, Bottom-Right, Bottom-Left]
+                const rawPoints = cropPoints.map(p => ({ x: p.x, y: p.y }));
+                
+                // Sort by Y to separate Top/Bottom rows
+                rawPoints.sort((a, b) => a.y - b.y);
+                const topRow = rawPoints.slice(0, 2).sort((a, b) => a.x - b.x);
+                const bottomRow = rawPoints.slice(2, 4).sort((a, b) => a.x - b.x);
+                
+                const sortedPoints = [ topRow[0], topRow[1], bottomRow[1], bottomRow[0] ];
+
+                // Map to real image size
                 const scaleX = img.width / cropCanvas.width;
                 const scaleY = img.height / cropCanvas.height;
                 
-                // Create Source Matrix from our SORTED points
                 let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
                     sortedPoints[0].x * scaleX, sortedPoints[0].y * scaleY, // TL
                     sortedPoints[1].x * scaleX, sortedPoints[1].y * scaleY, // TR
@@ -1481,71 +1475,94 @@
                     sortedPoints[3].x * scaleX, sortedPoints[3].y * scaleY  // BL
                 ]);
 
-                // --- 3. Calculate Destination Size (Rectified) ---
-                // Width = Max distance between top points or bottom points
-                const wTop = Math.hypot((sortedPoints[1].x - sortedPoints[0].x) * scaleX, (sortedPoints[1].y - sortedPoints[0].y) * scaleY);
-                const wBot = Math.hypot((sortedPoints[2].x - sortedPoints[3].x) * scaleX, (sortedPoints[2].y - sortedPoints[3].y) * scaleY);
-                const maxWidth = Math.max(wTop, wBot);
+                // Calculate Orthogonal Destination Size
+                const w1 = Math.hypot((sortedPoints[1].x - sortedPoints[0].x)*scaleX, (sortedPoints[1].y - sortedPoints[0].y)*scaleY);
+                const w2 = Math.hypot((sortedPoints[2].x - sortedPoints[3].x)*scaleX, (sortedPoints[2].y - sortedPoints[3].y)*scaleY);
+                const maxWidth = Math.max(w1, w2);
 
-                // Height = Max distance between left points or right points
-                const hLeft = Math.hypot((sortedPoints[0].x - sortedPoints[3].x) * scaleX, (sortedPoints[0].y - sortedPoints[3].y) * scaleY);
-                const hRight = Math.hypot((sortedPoints[1].x - sortedPoints[2].x) * scaleX, (sortedPoints[1].y - sortedPoints[2].y) * scaleY);
-                const maxHeight = Math.max(hLeft, hRight);
+                const h1 = Math.hypot((sortedPoints[0].x - sortedPoints[3].x)*scaleX, (sortedPoints[0].y - sortedPoints[3].y)*scaleY);
+                const h2 = Math.hypot((sortedPoints[1].x - sortedPoints[2].x)*scaleX, (sortedPoints[1].y - sortedPoints[2].y)*scaleY);
+                const maxHeight = Math.max(h1, h2);
 
-                // Create Destination Matrix (A perfect rectangle)
-                // Order must match srcTri: TL, TR, BR, BL
                 let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
-                    0, 0,                   // TL
-                    maxWidth, 0,            // TR
-                    maxWidth, maxHeight,    // BR
-                    0, maxHeight            // BL
+                    0, 0, maxWidth, 0, maxWidth, maxHeight, 0, maxHeight
                 ]);
 
                 // Warp
                 let M = cv.getPerspectiveTransform(srcTri, dstTri);
                 cv.warpPerspective(src, warped, M, new cv.Size(maxWidth, maxHeight));
 
-                // --- 4. ENHANCEMENT (Shadow Removal) ---
+                // --- 2. ENHANCEMENT (CamScanner Shadow Removal) ---
                 let finalMat = warped;
-                try {
-                    if (cv.COLOR_RGBA2RGB) {
-                        let lab = new cv.Mat();
-                        let planes = new cv.MatVector();
-                        
-                        // Convert to Lab
-                        cv.cvtColor(warped, lab, cv.COLOR_RGBA2RGB); 
-                        cv.cvtColor(lab, lab, cv.COLOR_RGB2Lab);
-                        cv.split(lab, planes);
-                        
-                        // CLAHE on Lightness
-                        let clahe = new cv.createCLAHE(2.0, new cv.Size(8, 8));
-                        let lChannel = planes.get(0);
-                        clahe.apply(lChannel, lChannel);
-                        
-                        // Shadow Removal / Background Division
-                        // (Simplified "Magic Color" - keeps structure but brightens)
-                        // Note: Full division is heavy, CLAHE is usually safer for mobile
-                        
-                        cv.merge(planes, lab);
-                        let enhanced = new cv.Mat();
-                        cv.cvtColor(lab, enhanced, cv.COLOR_Lab2RGB);
-                        finalMat = enhanced;
-                        
-                        lab.delete(); planes.delete(); clahe.delete(); enhanced.delete();
-                    }
-                } catch (e) { console.warn("Enhancement skipped", e); }
+                
+                // Skip shadow removal for Stamps (we usually want the ink as-is)
+                if (!isStampMode) {
+                    try {
+                        if (cv.COLOR_RGBA2RGB) {
+                            let rgb = new cv.Mat();
+                            cv.cvtColor(warped, rgb, cv.COLOR_RGBA2RGB);
+                            let lab = new cv.Mat();
+                            cv.cvtColor(rgb, lab, cv.COLOR_RGB2Lab);
+                            let planes = new cv.MatVector();
+                            cv.split(lab, planes);
+                            let L = planes.get(0);
+                            
+                            // Estimate Background (Morphology)
+                            let bg = new cv.Mat();
+                            let kernel = cv.Mat.ones(40, 40, cv.CV_8U);
+                            cv.dilate(L, bg, kernel);
+                            cv.medianBlur(bg, bg, 21);
+                            
+                            // Divide (Flat Field Correction)
+                            let L_f = new cv.Mat(); L.convertTo(L_f, cv.CV_32F);
+                            let bg_f = new cv.Mat(); bg.convertTo(bg_f, cv.CV_32F);
+                            let result_f = new cv.Mat();
+                            cv.divide(L_f, bg_f, result_f, 255.0);
+                            
+                            let flat_L = new cv.Mat();
+                            result_f.convertTo(flat_L, cv.CV_8U);
+                            
+                            // CLAHE (Contrast)
+                            let clahe = new cv.createCLAHE(2.0, new cv.Size(8, 8));
+                            clahe.apply(flat_L, flat_L);
+                            
+                            // Merge
+                            planes.set(0, flat_L);
+                            cv.merge(planes, lab);
+                            let enhanced = new cv.Mat();
+                            cv.cvtColor(lab, enhanced, cv.COLOR_Lab2RGB);
+                            
+                            finalMat = enhanced;
+                            
+                            // Cleanup enhancement objects
+                            rgb.delete(); lab.delete(); planes.delete(); L.delete(); bg.delete(); 
+                            kernel.delete(); L_f.delete(); bg_f.delete(); result_f.delete(); flat_L.delete(); clahe.delete();
+                        }
+                    } catch (e) { console.warn("Shadow removal skipped:", e); }
+                }
 
                 // Output
                 cv.imshow('processing-canvas', finalMat); 
-                const dataUrl = document.getElementById('processing-canvas').toDataURL('image/jpeg', 0.95);
+                const outputMime = isStampMode ? 'image/png' : 'image/jpeg'; // PNG for stamps (better transparency potential)
+                const dataUrl = document.getElementById('processing-canvas').toDataURL(outputMime, 0.95);
 
                 // Cleanup
                 src.delete(); srcTri.delete(); dstTri.delete(); M.delete(); 
                 warped.delete(); if(finalMat !== warped) finalMat.delete();
 
+                // Finish
                 view.classList.add('hidden');
                 btn.innerHTML = originalBtnText;
-                openEditor(dataUrl);
+
+                if (isStampMode) {
+                    // Logic for Stamps: Return to editor and add image
+                    isStampMode = false;
+                    document.getElementById('view-editor').classList.remove('hidden');
+                    addStampImageToCanvas(dataUrl);
+                } else {
+                    // Logic for Docs: Open new editor
+                    openEditor(dataUrl);
+                }
 
             } catch (err) {
                 console.error("Apply Crop Error:", err);
@@ -1589,33 +1606,60 @@
             }
         }
         
-        function addStampImageToCanvas(dataUrl) {
+       function addStampImageToCanvas(dataUrl) {
             if (!fabricCanvas) return;
             
-            fabric.Image.fromURL(dataUrl, function(img) {
-                const targetScale = (fabricCanvas.width * 0.3) / img.width;
+            // 1. Resize Image OFF-SCREEN first
+            const imgObj = new Image();
+            imgObj.src = dataUrl;
+            
+            imgObj.onload = function() {
+                // Resize logic: Max width 500px
+                const MAX_W = 500;
+                let w = imgObj.width;
+                let h = imgObj.height;
+                
+                if (w > MAX_W) {
+                    h = Math.round(h * (MAX_W / w));
+                    w = MAX_W;
+                }
 
-                img.set({
-                    left: fabricCanvas.width / 2,
-                    top: fabricCanvas.height / 2,
-                    originX: 'center',
-                    originY: 'center',
-                    scaleX: targetScale,
-                    scaleY: targetScale,
-                    cornerColor: '#10b981', 
-                    cornerStyle: 'circle',
-                    borderColor: '#10b981',
-                    transparentCorners: false,
-                    isStamp: true,      
-                    rawSrc: dataUrl     
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(imgObj, 0, 0, w, h);
+                
+                // Get optimized (small) image data
+                const optimizedUrl = canvas.toDataURL('image/png');
+
+                // 2. Add to Fabric Canvas
+                fabric.Image.fromURL(optimizedUrl, function(img) {
+                    const targetScale = (fabricCanvas.width * 0.4) / img.width;
+
+                    img.set({
+                        left: fabricCanvas.width / 2,
+                        top: fabricCanvas.height / 2,
+                        originX: 'center',
+                        originY: 'center',
+                        scaleX: targetScale,
+                        scaleY: targetScale,
+                        cornerColor: '#10b981', 
+                        cornerStyle: 'circle',
+                        borderColor: '#10b981',
+                        transparentCorners: false,
+                        
+                        // IMPORTANT: Save the SMALL optimized URL as rawSrc
+                        isStamp: true,      
+                        rawSrc: optimizedUrl 
+                    });
+
+                    fabricCanvas.add(img);
+                    fabricCanvas.setActiveObject(img);
+                    updateStampThreshold(150); // Initial background removal
                 });
-
-                fabricCanvas.add(img);
-                fabricCanvas.setActiveObject(img);
-                updateStampThreshold(150);
-            });
+            };
         }
-
         function processAndAddStamp(rawImgSrc) {
             addStampImageToCanvas(rawImgSrc);
         }
@@ -1639,46 +1683,53 @@
             document.getElementById('stamp-slider-container').classList.add('hidden');
         }
 
+        let isProcessingSlider = false;
+
         function updateStampThreshold(thresholdVal) {
             if (!fabricCanvas) return;
+            if (isProcessingSlider) return; // Drop frame if busy
+
             const activeObj = fabricCanvas.getActiveObject();
-            
             if (!activeObj || !activeObj.isStamp || !activeObj.rawSrc) return;
 
+            isProcessingSlider = true;
             const threshold = parseInt(thresholdVal);
-            const rawSrc = activeObj.rawSrc;
 
-            const tempImg = new Image();
-            tempImg.src = rawSrc;
-            
-            tempImg.onload = function() {
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                canvas.width = tempImg.width;
-                canvas.height = tempImg.height;
+            // Use AnimationFrame for smooth UI
+            requestAnimationFrame(() => {
+                const tempImg = new Image();
+                tempImg.src = activeObj.rawSrc; // This is now the small image!
                 
-                ctx.drawImage(tempImg, 0, 0);
-                
-                const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                const data = imgData.data;
+                tempImg.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = tempImg.width;
+                    canvas.height = tempImg.height;
+                    
+                    ctx.drawImage(tempImg, 0, 0);
+                    
+                    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const data = imgData.data;
 
-                for (let i = 0; i < data.length; i += 4) {
-                    const r = data[i];
-                    const g = data[i + 1];
-                    const b = data[i + 2];
-                    const brightness = (r + g + b) / 3;
+                    // Fast loop (small array)
+                    for (let i = 0; i < data.length; i += 4) {
+                        const r = data[i];
+                        const g = data[i + 1];
+                        const b = data[i + 2];
+                        // Simple lightness check
+                        if (((r + g + b) / 3) > threshold) {
+                            data[i + 3] = 0; // Transparent
+                        } 
+                    }
 
-                    if (brightness > threshold) {
-                        data[i + 3] = 0; 
-                    } 
-                }
-
-                ctx.putImageData(imgData, 0, 0);
-                const newSrc = canvas.toDataURL();
-                activeObj.setSrc(newSrc, function() {
-                    fabricCanvas.renderAll();
-                });
-            };
+                    ctx.putImageData(imgData, 0, 0);
+                    
+                    activeObj.setSrc(canvas.toDataURL(), function() {
+                        fabricCanvas.renderAll();
+                        isProcessingSlider = false; // Unlock
+                    });
+                };
+            });
         }
 
         function addTextToCanvas() {
@@ -2196,6 +2247,7 @@
     </script>
 </body>
 </html>
+
 
 
 
