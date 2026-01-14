@@ -854,30 +854,22 @@
             }
             emptyState.classList.add('hidden');
             
+            // Sorting Logic (Same as before)
             const sortWeights = {
-                'Quotation': 1,
-                'Purchase Request': 2,
-                'Purchase Order': 3,
-                'Service Report': 4,
-                'Delivery Order': 5,
-                'Invoice': 6,
-                'Permit to Work': 7,
-                'Other': 99 
+                'Quotation': 1, 'Purchase Request': 2, 'Purchase Order': 3,
+                'Service Report': 4, 'Delivery Order': 5, 'Invoice': 6,
+                'Permit to Work': 7, 'Other': 99 
             };
 
             const sortedDocs = [...job.documents].sort((a, b) => {
                 const weightA = sortWeights[a.docCategory] || 99;
                 const weightB = sortWeights[b.docCategory] || 99;
-                
                 if (weightA !== weightB) return weightA - weightB;
                 
-                const getBaseName = (name) => name.replace(/\s*\(Page\s+\d+\).*/i, '');
-                const baseA = getBaseName(a.name);
-                const baseB = getBaseName(b.name);
-
-                if (baseA === baseB) {
-                    return a.name.localeCompare(b.name, undefined, { numeric: true });
-                }
+                const baseA = a.name.replace(/\s*\(Page\s+\d+\).*/i, '');
+                const baseB = b.name.replace(/\s*\(Page\s+\d+\).*/i, '');
+                if (baseA === baseB) return a.name.localeCompare(b.name, undefined, { numeric: true });
+                
                 return b.id.localeCompare(a.id); 
             });
 
@@ -886,49 +878,109 @@
                 if (doc.type === 'img' || doc.type === 'scan') icon = 'image';
                 if (doc.type === 'pdf') icon = 'file';
                 
-                const isDO = doc.docCategory === 'Delivery Order';
                 const displayName = doc.name.replace(/\.[^/.]+$/, "");
+                const isDO = doc.docCategory === 'Delivery Order';
 
+                // --- NEW TOGGLE BUTTON LOGIC ---
+                let statusBadge = '';
+                if (isDO) {
+                    if (doc.isSigned) {
+                        statusBadge = `
+                        <button onclick="event.stopPropagation(); toggleDOSigned('${doc.id}')" class="ml-2 px-2 py-0.5 rounded-full bg-emerald-900/40 border border-emerald-500/50 text-[10px] text-emerald-400 font-bold uppercase tracking-wider hover:bg-emerald-900/60 transition-colors flex items-center gap-1 shrink-0">
+                            <i data-lucide="check-circle-2" class="w-3 h-3"></i> Signed
+                        </button>`;
+                    } else {
+                        statusBadge = `
+                        <button onclick="event.stopPropagation(); toggleDOSigned('${doc.id}')" class="ml-2 px-2 py-0.5 rounded-full bg-gray-700/50 border border-gray-600 text-[10px] text-gray-400 font-bold uppercase tracking-wider hover:bg-gray-600 transition-colors flex items-center gap-1 shrink-0">
+                            <i data-lucide="circle" class="w-3 h-3"></i> Pending
+                        </button>`;
+                    }
+                }
+
+                // Action Buttons
                 let actionButtons = '';
                 if (isViewingArchive) {
-                    actionButtons = `<button onclick="event.stopPropagation()" class="p-2 text-gray-500 cursor-not-allowed border border-gray-700 rounded"><i data-lucide="lock" class="w-4 h-4"></i></button>`;
+                    actionButtons = `<button class="p-2 text-gray-500 cursor-not-allowed border border-gray-700 rounded"><i data-lucide="lock" class="w-4 h-4"></i></button>`;
                 } else {
                     actionButtons += `<button onclick="event.stopPropagation(); editExistingDoc('${doc.id}')" class="p-2 text-blue-400 hover:text-white bg-blue-900/20 rounded border border-blue-900/50 mr-2"><i data-lucide="pen-tool" class="w-4 h-4"></i></button>`;
                     actionButtons += `<button onclick="event.stopPropagation(); promptDelete('${doc.id}', 'doc')" class="p-2 text-red-400 hover:text-white bg-red-900/20 rounded border border-red-900/50"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`;
                 }
 
-                let metaHtml = '';
-                if (doc.smartData) {
-                    if (doc.smartData.id) metaHtml += `<span class="text-[9px] text-emerald-300 bg-emerald-900/40 px-1.5 py-0.5 rounded mr-1 font-mono tracking-wide border border-emerald-800">${doc.smartData.id}</span>`;
-                    if (doc.smartData.amount) metaHtml += `<span class="text-[9px] text-yellow-300 bg-yellow-900/40 px-1.5 py-0.5 rounded font-mono border border-yellow-800">\$${doc.smartData.amount}</span>`;
-                }
-
                 return `
                 <div onclick="viewDocument('${doc.id}')" class="bg-gray-800 p-3 rounded-lg border border-gray-700 flex justify-between items-center cursor-pointer hover:bg-gray-700/50 transition-colors group">
-                    <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 rounded bg-gray-900 flex items-center justify-center text-gray-400 relative group-hover:text-white transition-colors">
+                    <div class="flex items-center gap-3 overflow-hidden">
+                        <div class="w-10 h-10 shrink-0 rounded bg-gray-900 flex items-center justify-center text-gray-400 relative group-hover:text-white transition-colors">
                             <i data-lucide="${icon}" class="w-5 h-5"></i>
-                            ${doc.isSigned ? '<div class="absolute -bottom-1 -right-1 bg-emerald-500 rounded-full p-0.5 border border-gray-900"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4"><polyline points="20 6 9 17 4 12"></polyline></svg></div>' : (isDO ? '<div class="absolute -top-1 -right-1 w-3 h-3 bg-yellow-500 rounded-full border border-gray-900"></div>' : '')}
+                            ${doc.isSigned ? '<div class="absolute -bottom-1 -right-1 bg-emerald-500 rounded-full p-0.5 border border-gray-900"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4"><polyline points="20 6 9 17 4 12"></polyline></svg></div>' : ''}
                         </div>
-                        <div>
+                        <div class="min-w-0">
                             <div class="flex items-center gap-2 mb-0.5">
-                                <p class="text-sm font-medium text-gray-200 group-hover:text-emerald-400 transition-colors">${displayName}</p>
+                                <p class="text-sm font-medium text-gray-200 group-hover:text-emerald-400 transition-colors truncate">${displayName}</p>
                             </div>
-                            <div class="flex items-center gap-1">
-                                <span class="text-[9px] px-1.5 py-0.5 rounded border border-gray-600/50 text-gray-400 uppercase font-bold">${doc.docCategory}</span>
-                                ${metaHtml}
+                            <div class="flex items-center gap-1 flex-wrap">
+                                <span class="text-[9px] px-1.5 py-0.5 rounded border border-gray-600/50 text-gray-400 uppercase font-bold whitespace-nowrap">${doc.docCategory}</span>
+                                ${statusBadge}
                             </div>
                         </div>
                     </div>
-                    <div class="flex gap-2">
+                    <div class="flex gap-2 shrink-0 ml-2">
                         <button onclick="event.stopPropagation(); downloadSinglePDF('${doc.id}')" class="p-2 text-red-400 hover:text-white bg-red-900/20 rounded border border-red-900/50"><i data-lucide="file-text" class="w-4 h-4"></i></button>
                         ${actionButtons}
                     </div>
                 </div>
             `}).join('');
+            
             if(typeof lucide !== 'undefined') lucide.createIcons();
         }
 
+        async function toggleDOSigned(docId) {
+            if (!currentJobId) return;
+            const job = jobs.find(j => j.id === currentJobId);
+            const doc = job.documents.find(d => d.id === docId);
+            
+            if (!doc) return;
+
+            // 1. Optimistic Update (Immediate UI Change)
+            const newStatus = !doc.isSigned;
+            doc.isSigned = newStatus;
+            
+            renderDocumentList(job); // Refresh list to toggle button
+            
+            // 2. Update Header Status (Open -> Completed or vice versa)
+            const overallStatus = getJobStatus(job);
+            const statusEl = document.getElementById('detail-status');
+            statusEl.textContent = overallStatus;
+            statusEl.className = overallStatus === 'Completed'
+                ? 'text-[10px] px-2 py-1 rounded bg-emerald-900/50 text-emerald-400 font-bold uppercase tracking-wider border border-emerald-800'
+                : 'text-[10px] px-2 py-1 rounded bg-yellow-900/50 text-yellow-400 font-bold uppercase tracking-wider border border-yellow-800';
+
+            // 3. Update Database
+            if (db) {
+                try {
+                    const jobRef = db.collection('jobs').doc(currentJobId);
+                    
+                    // We must fetch fresh data to update array correctly
+                    // (Firestore cannot update a specific object property inside an array directly)
+                    const jobSnap = await jobRef.get();
+                    if (jobSnap.exists) {
+                        let currentDocs = jobSnap.data().documents;
+                        const idx = currentDocs.findIndex(d => d.id === docId);
+                        
+                        if (idx !== -1) {
+                            currentDocs[idx].isSigned = newStatus;
+                            await jobRef.update({ documents: currentDocs });
+                        }
+                    }
+                } catch (e) {
+                    console.error("Toggle Error:", e);
+                    alert("Sync failed. Check connection.");
+                    // Revert on failure
+                    doc.isSigned = !newStatus; 
+                    renderDocumentList(job);
+                }
+            }
+        }
+        
         function editExistingDoc(docId) {
             if(isViewingArchive) return;
             editingDocId = docId;
@@ -2390,6 +2442,7 @@
     </script>
 </body>
 </html>
+
 
 
 
