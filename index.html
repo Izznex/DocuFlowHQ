@@ -1691,10 +1691,28 @@
             setTimeout(() => { document.getElementById('lightbox-img').src = ''; }, 200);
         }
 
-        async function ensureDocImageLoaded(job, doc) {
-            if (doc.src && doc.src.length > 100) return doc.src;
+       async function ensureDocImageLoaded(job, doc) {
+            // 1. Check for Offline/Restored Data (Uint8Array or ArrayBuffer)
+            if (doc.src) {
+                // If it's ALREADY a String (Base64 or Blob URL), return it
+                if (typeof doc.src === 'string' && doc.src.length > 0) return doc.src;
+        
+                // If it's BINARY (from CBOR load), convert to Blob URL for display
+                if (doc.src instanceof Uint8Array || doc.src instanceof ArrayBuffer) {
+                    const blob = new Blob([doc.src], { type: 'image/webp' }); // Assume WebP
+                    const url = URL.createObjectURL(blob);
+                    
+                    // OPTIONAL: Cache it as a string so we don't recreate the blob every click
+                    // doc.src = url; 
+                    
+                    return url;
+                }
+            }
+        
+            // 2. If viewing archive and no data, stop.
             if (isViewingArchive) return null;
             
+            // 3. Try Firestore (Standard Cloud Load)
             if (db && doc.id) {
                 try {
                     const docRef = db.collection('jobs').doc(job.id).collection('scans').doc(doc.id);
@@ -1702,13 +1720,13 @@
                     if (snapshot.exists) {
                         const data = snapshot.data();
                         if (data.image_blob) {
+                            // Firestore stores binary as a special object, convert to standard Blob
                             const uint8Array = data.image_blob.toUint8Array();
                             const blob = new Blob([uint8Array], { type: 'image/webp' });
                             const url = URL.createObjectURL(blob);
                             doc.src = url; 
                             return url;
                         } else if (data.src) {
-                            doc.src = data.src;
                             return data.src;
                         }
                     }
@@ -3041,102 +3059,110 @@
         // Global variable to hold the list of jobs pending archive
         let pendingArchiveJobs = [];
         
-        function archiveClosedJobs() {
-            // 1. Security Check
+        async function archiveClosedJobs() {
+            // 1. Admin Check
             if (typeof userRole === 'undefined' || userRole !== 'admin') {
                 alert("⛔ Access Denied\n\nOnly Administrators can archive jobs.");
                 return;
             }
         
             // 2. Find Candidates
-            // Must be 'Completed' AND NOT already 'isArchived'
             pendingArchiveJobs = jobs.filter(j => getJobStatus(j) === 'Completed' && !j.isArchived);
             
             if (pendingArchiveJobs.length === 0) {
                 return alert("No active completed jobs to archive.");
             }
         
-            // 3. Prepare UI
+            // 3. UI Setup
             const modal = document.getElementById('archive-confirm-modal');
             const countEl = document.getElementById('archive-count');
             const inputEl = document.getElementById('archive-filename-input');
             
-            // Auto-generate smart filename
             const dateStr = new Date().toISOString().slice(0, 10);
             const defaultName = `DocuFlow_Archive_${dateStr}_(${pendingArchiveJobs.length}jobs).cbor`;
             
             countEl.innerText = pendingArchiveJobs.length;
             inputEl.value = defaultName;
             
-            // Show Modal
             modal.classList.remove('hidden');
         }
+        
+        // Helper: Convert Blob URL to Raw Binary (Uint8Array)
+        const blobUrlToBinary = async (url) => {
+            const response = await fetch(url);
+            const blob = await response.blob();
+            const arrayBuffer = await blob.arrayBuffer();
+            return new Uint8Array(arrayBuffer); // <--- Pure Binary Data
+        };
         
         async function executeArchive() {
             const modal = document.getElementById('archive-confirm-modal');
             const inputEl = document.getElementById('archive-filename-input');
             const btn = document.getElementById('btn-execute-archive');
             
-            // Validate Filename
             let filename = inputEl.value.trim();
             if (!filename) return alert("Please enter a filename.");
             if (!filename.endsWith('.cbor')) filename += '.cbor';
         
-            // UI Loading State
             const originalText = btn.innerHTML;
-            btn.innerHTML = `<div class="loader w-4 h-4 border-t-white"></div> Processing...`;
+            btn.innerHTML = `<div class="loader w-4 h-4 border-t-white"></div> converting images...`;
             btn.disabled = true;
             document.body.style.cursor = 'wait';
         
             try {
-                // 1. PREPARE DATA BUNDLE
                 const fullBackupData = [];
                 
-                // Loop through jobs and fetch full image data
+                // 1. PREPARE DATA (CONVERT BLOBs TO BINARY)
                 for (const job of pendingArchiveJobs) {
-                    // Create a deep copy so we don't mess up the live view yet
                     const jobCopy = JSON.parse(JSON.stringify(job)); 
                     
                     for (const doc of jobCopy.documents) {
-                        // This ensures we get the Blob URL or Base64 data
-                        const imgData = await ensureDocImageLoaded(job, doc); 
-                        doc.src = imgData; 
+                        // Fetch the image (usually returns a blob: url)
+                        let imgData = await ensureDocImageLoaded(job, doc);
                         
-                        // Remove Firestore internal types if present
+                        // CRITICAL UPDATE: Convert Blob URL to Uint8Array (Binary)
+                        if (imgData && typeof imgData === 'string' && imgData.startsWith('blob:')) {
+                            try {
+                                imgData = await blobUrlToBinary(imgData);
+                            } catch (err) {
+                                console.error("Failed to convert blob", err);
+                                // Fallback: keep the blob url (though it won't work offline) or null
+                            }
+                        }
+        
+                        // imgData is now a Uint8Array (if conversion worked)
+                        // CBOR encodes this efficiently as a byte string
+                        doc.src = imgData; 
                         delete doc.image_blob; 
                     }
                     fullBackupData.push(jobCopy);
                 }
         
-                // 2. GENERATE & DOWNLOAD FILE
-                const archivePayload = { 
-                    version: 1, 
-                    timestamp: Date.now(), 
-                    jobs: fullBackupData 
-                };
-                
+                btn.innerHTML = `<div class="loader w-4 h-4 border-t-white"></div> saving file...`;
+        
+                // 2. DOWNLOAD FILE
+                // CBOR.encode handles Uint8Array automatically!
+                const archivePayload = { version: 1, timestamp: Date.now(), jobs: fullBackupData };
                 const blob = new Blob([CBOR.encode(archivePayload)], { type: 'application/cbor' });
                 const url = URL.createObjectURL(blob);
                 
-                // Trigger Save As Dialog
                 const a = document.createElement('a');
                 a.href = url;
                 a.download = filename;
                 document.body.appendChild(a);
-                a.click(); // <--- Browser will show "Save As" here
+                a.click();
                 document.body.removeChild(a);
                 
-                // Short pause to ensure download started before we wipe DB
+                // Wait to ensure download starts
                 await new Promise(r => setTimeout(r, 1000));
         
-                // 3. DATABASE WIPE (The Destructive Part)
+                // 3. WIPE DATABASE
                 if (db) {
                     const batch = db.batch();
                     
                     for (const job of pendingArchiveJobs) {
                         const jobRef = db.collection('jobs').doc(job.id);
                         
-                        // Create Lightweight Placeholders
                         const placeholderDocs = job.documents.map(d => ({
                             id: d.id,
                             name: d.name,
@@ -3144,26 +3170,22 @@
                             date: d.date,
                             size: d.size, 
                             isSigned: d.isSigned,
-                            isOffline: true // <--- Flag for Cold Storage
+                            isOffline: true 
                         }));
         
-                        // Update Main Job Record
                         batch.update(jobRef, { 
                             isArchived: true,
                             archivedAt: new Date().toISOString(),
-                            archiveFilename: filename, // <--- Link to the file we just saved
+                            archiveFilename: filename,
                             documents: placeholderDocs 
                         });
         
-                        // DELETE Sub-collection Images
                         const scanSnaps = await jobRef.collection('scans').get();
                         scanSnaps.forEach(doc => batch.delete(doc.ref));
                     }
                     
                     await batch.commit();
-                    
-                    // Success!
-                    alert(`✅ Archive Complete!\n\n${pendingArchiveJobs.length} jobs have been moved to Cold Storage.\nKeep your '${filename}' file safe!`);
+                    alert(`✅ Archive Complete!\n\nImages converted and saved to '${filename}'.\nCloud storage cleared.`);
                     modal.classList.add('hidden');
                 }
         
@@ -3171,13 +3193,13 @@
                 console.error("Archive Error:", e);
                 alert("Failed to archive: " + e.message);
             } finally {
-                // Reset UI
                 btn.innerHTML = originalText;
                 btn.disabled = false;
                 document.body.style.cursor = 'default';
-                pendingArchiveJobs = []; // Clear memory
+                pendingArchiveJobs = [];
             }
         }
+        
         function handleArchiveUpload(input) {
             if (!input.files || !input.files[0]) return;
             const file = input.files[0];
@@ -3396,6 +3418,7 @@
     </script>
 </body>
 </html>
+
 
 
 
