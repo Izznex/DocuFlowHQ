@@ -1473,7 +1473,7 @@
             else { scanFab.classList.remove('hidden'); archiveBadge.classList.add('hidden'); }
             
             // --- FIX IS HERE ---
-            renderDocumentList(job); // Added the function name back
+            (job); // Added the function name back
             
             document.getElementById('view-job-details').classList.remove('hidden');
         }
@@ -1494,27 +1494,33 @@
             }
             emptyState.classList.add('hidden');
             
-            // Grouping
+            // --- 1. GROUPING ---
             const groups = {};
             const singles = [];
+        
             job.documents.forEach(doc => {
                 if (doc.groupId) {
                     if (!groups[doc.groupId]) groups[doc.groupId] = [];
                     groups[doc.groupId].push(doc);
-                } else { singles.push(doc); }
+                } else {
+                    singles.push(doc);
+                }
             });
         
+            // Flatten logic
             let displayItems = [...singles];
+            
             Object.values(groups).forEach(groupDocs => {
                 groupDocs.sort((a, b) => (a.pageIndex || 0) - (b.pageIndex || 0));
                 const mainDoc = groupDocs[0];
                 mainDoc._isGroup = true;
-                mainDoc._groupDocs = groupDocs;
+                mainDoc._groupDocs = groupDocs; 
                 displayItems.push(mainDoc);
             });
         
-            // Sorting
+            // --- 2. SORTING ---
             const sortWeights = { 'Quotation': 1, 'Purchase Request': 2, 'Purchase Order': 3, 'Service Report': 4, 'Delivery Order': 5, 'Invoice': 6, 'Other': 99 };
+            
             displayItems.sort((a, b) => {
                 const weightA = sortWeights[a.docCategory] || 99;
                 const weightB = sortWeights[b.docCategory] || 99;
@@ -1522,44 +1528,65 @@
                 return b.id.localeCompare(a.id); 
             });
             
-            // Render
+            // --- 3. RENDER ---
             list.innerHTML = displayItems.map(item => {
                 if (item._isGroup) {
-                    // === GROUP ROW ===
+                    // === GROUP ROW (PARENT) ===
                     const groupId = item.groupId;
                     const count = item._groupDocs.length;
                     let groupName = item.name.replace(/\.[^/.]+$/, "").replace(/\s*\(Page\s+\d+\).*/i, '');
+                    
+                    // --- AGGREGATE STATUS LOGIC ---
+                    // Check if ANY child has a pending requirement
+                    const hasPending = item._groupDocs.some(d => d.requiresSignature && !d.isSigned);
+                    // Check if ANY child is signed (and no pending issues exist)
+                    const hasSigned = !hasPending && item._groupDocs.some(d => d.isSigned);
+        
+                    let groupBadge = '';
+                    if (hasPending) {
+                        // Main Banner Warning
+                        groupBadge = `<span class="ml-2 px-2 py-0.5 rounded-full bg-orange-900/40 border border-orange-500 text-[10px] text-orange-400 font-bold uppercase tracking-wider flex items-center gap-1 animate-pulse"><i data-lucide="alert-circle" class="w-3 h-3"></i> Approval Req.</span>`;
+                    } else if (hasSigned) {
+                        // Main Banner Success
+                        groupBadge = `<span class="ml-2 px-2 py-0.5 rounded-full bg-emerald-900/40 border border-emerald-500/50 text-[10px] text-emerald-400 font-bold uppercase tracking-wider flex items-center gap-1"><i data-lucide="check-circle-2" class="w-3 h-3"></i> Signed</span>`;
+                    }
+        
+                    // Render Children
                     const childrenHtml = item._groupDocs.map(doc => renderSingleRow(job, doc, true)).join('');
         
                     return `
                     <div class="mb-3 border border-gray-700 rounded-xl overflow-hidden bg-gray-800/50">
                         <div onclick="toggleGroup('${groupId}')" class="p-4 flex justify-between items-center cursor-pointer hover:bg-gray-800 transition-colors">
-                            <div class="flex items-center gap-3">
-                                <div class="w-10 h-10 rounded bg-indigo-900/30 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                            <div class="flex items-center gap-3 overflow-hidden">
+                                <div class="w-10 h-10 shrink-0 rounded bg-indigo-900/30 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
                                     <i data-lucide="layers" class="w-5 h-5"></i>
                                 </div>
-                                <div>
-                                    <h3 class="font-bold text-gray-200 text-sm">${groupName}</h3>
+                                <div class="min-w-0">
+                                    <div class="flex items-center gap-2">
+                                        <h3 class="font-bold text-gray-200 text-sm truncate">${groupName}</h3>
+                                        ${groupBadge}
+                                    </div>
                                     <span class="text-[10px] text-indigo-300 font-mono">${count} Pages</span>
                                 </div>
                             </div>
-                            <div class="flex gap-2">
+                            
+                            <div class="flex gap-2 shrink-0 ml-2">
                                 <button onclick="event.stopPropagation(); pendingDownloadDocId='${item.id}'; openDownloadModal('${item.id}', true)" class="p-2 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500 hover:text-white rounded-lg border border-indigo-500/30 transition-colors" title="Export Combined PDF">
                                     <i data-lucide="file-stack" class="w-4 h-4"></i>
                                 </button>
-                                
                                 <button onclick="event.stopPropagation(); promptDelete('${item.id}', 'group')" class="p-2 bg-red-900/10 text-red-400 hover:bg-red-500 hover:text-white rounded-lg border border-red-900/30 transition-colors" title="Delete Group">
                                     <i data-lucide="trash-2" class="w-4 h-4"></i>
                                 </button>
-                                
                                 <i data-lucide="chevron-down" id="arrow-${groupId}" class="w-4 h-4 text-gray-500 transition-transform duration-300"></i>
                             </div>
                         </div>
+        
                         <div id="group-${groupId}" class="hidden border-t border-gray-700/50 bg-gray-900/30">
                             ${childrenHtml}
                         </div>
                     </div>`;
                 } else {
+                    // === SINGLE ROW ===
                     return `<div class="mb-3">${renderSingleRow(job, item, false)}</div>`;
                 }
             }).join('');
@@ -4131,3 +4158,4 @@
     </script>
 </body>
 </html>
+
