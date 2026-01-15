@@ -1466,15 +1466,18 @@
             statusEl.className = status === 'Completed'
                 ? 'text-[10px] px-2 py-1 rounded bg-emerald-900/50 text-emerald-400 font-bold uppercase tracking-wider border border-emerald-800'
                 : 'text-[10px] px-2 py-1 rounded bg-yellow-900/50 text-yellow-400 font-bold uppercase tracking-wider border border-yellow-800';
-
+        
             const scanFab = document.getElementById('scan-fab');
             const archiveBadge = document.getElementById('detail-archive-badge');
             if (isViewingArchive) { scanFab.classList.add('hidden'); archiveBadge.classList.remove('hidden'); } 
             else { scanFab.classList.remove('hidden'); archiveBadge.classList.add('hidden'); }
             
-            (job);
+            // --- FIX IS HERE ---
+            renderDocumentList(job); // Added the function name back
+            
             document.getElementById('view-job-details').classList.remove('hidden');
         }
+        
         function closeJobDetails() {
             document.getElementById('view-job-details').classList.add('hidden');
             currentJobId = null;
@@ -4003,6 +4006,7 @@
     </script>
 </body>
 </html>
+
 
 
 
