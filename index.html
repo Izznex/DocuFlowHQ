@@ -3465,11 +3465,15 @@
                 }
                 
                 const totalPages = finalSaveList.length;
+                // --- NEW: Generate Group ID ---
+                const groupId = totalPages > 1 ? 'grp_' + Date.now() : null; 
                 const baseId = Math.random().toString(36).substr(2, 4).toUpperCase();
         
                 // 3. SAVE LOOP
                 for (let i = 0; i < totalPages; i++) {
                     const dataUrl = finalSaveList[i];
+                    
+                    // Name logic: "Delivery Order (Page 1)"
                     let pageSuffix = totalPages > 1 ? ` (Page ${i + 1})` : "";
                     
                     let idToOverwrite = null;
@@ -3477,8 +3481,12 @@
                         idToOverwrite = editingDocId;
                     }
         
-                    // PASS 'requiresSignature' AS THE LAST ARGUMENT
-                    await saveSingleDocument(dataUrl, category, isSigned, baseId, pageSuffix, idToOverwrite, requiresSignature);
+                    // --- CRITICAL UPDATE: Pass groupId and i (pageIndex) ---
+                    await saveSingleDocument(
+                        dataUrl, category, isSigned, baseId, pageSuffix, 
+                        idToOverwrite, requiresSignature, 
+                        groupId, i 
+                    );
                 }
         
                 // Cleanup & Reset
@@ -3491,7 +3499,7 @@
                 cancelEdit(); 
                 editingDocId = null;
         
-                if (totalPages > 1) alert(`✅ Saved ${totalPages} pages successfully.`);
+                if (totalPages > 1) alert(`✅ Saved ${totalPages} pages as a group.`);
         
             } catch (err) {
                 console.error("Save Error", err);
@@ -3501,37 +3509,25 @@
                 saveBtn.disabled = false;
             }
         }
-
-        async function saveSingleDocument(dataURL, category, isSigned, baseId, nameSuffix, overwriteId = null, requiresSignature = false) {
-            
+        
+        // UPDATED SIGNATURE: Added groupId and pageIndex
+        async function saveSingleDocument(dataURL, category, isSigned, baseId, nameSuffix, overwriteId = null, requiresSignature = false, groupId = null, pageIndex = 0) {
             let finalDocId, finalDocName;
-
+        
             // 1. DETERMINE ID & NAME
             if (overwriteId) {
-                // --- OVERWRITE MODE ---
                 finalDocId = overwriteId;
-                
-                // Find existing doc to see if we should keep its specific name
                 const job = jobs.find(j => j.id === currentJobId);
                 const existingDoc = job ? job.documents.find(d => d.id === overwriteId) : null;
-                
                 if (existingDoc && existingDoc.docCategory === category) {
-                     // If category hasn't changed, keep the old name exactly as is
                      finalDocName = existingDoc.name;
                 } else {
-                     // If category changed, generate clean name: "Purchase Order.webp"
-                     // We don't need a random ID here because we are the active file.
                      finalDocName = `${category}${nameSuffix}.webp`;
                 }
             } else {
-                // --- NEW FILE MODE ---
                 finalDocId = 'doc_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
-                
-                // Start with Clean Name: "Purchase Order.webp"
                 let candidateName = `${category}${nameSuffix}.webp`;
-                
-                // CHECK FOR DUPLICATES
-                // If "Purchase Order.webp" exists, try "Purchase Order (2).webp", etc.
+                // Duplicate check
                 const job = jobs.find(j => j.id === currentJobId);
                 if (job && job.documents) {
                     let counter = 1;
@@ -3542,15 +3538,16 @@
                 }
                 finalDocName = candidateName;
             }
-
-            // 2. PREPARE BLOB (Standard logic)
+        
+            // 2. PREPARE BLOB
             const blob = await (await fetch(dataURL)).blob();
             const arrayBuffer = await blob.arrayBuffer();
             const uint8Array = new Uint8Array(arrayBuffer);
             const firestoreBlob = firebase.firestore.Blob.fromUint8Array(uint8Array);
             const sizeMb = (blob.size / (1024*1024)).toFixed(2);
             const sizeStr = sizeMb < 1 ? (blob.size/1024).toFixed(0) + 'KB' : sizeMb + 'MB';
-
+        
+            // 3. CREATE DATA OBJECT
             const newDoc = {
                 id: finalDocId, 
                 name: finalDocName,
@@ -3562,11 +3559,15 @@
                 smartData: {}, 
                 isSigned: isSigned,
                 requiresSignature: requiresSignature, 
-                approverName: null, // Will store "Manager Name" later
-                approverUid: null   // Will store "user_123" later
+                approverName: null, 
+                approverUid: null,
+                
+                // --- NEW: SAVE GROUP DATA ---
+                groupId: groupId, 
+                pageIndex: pageIndex 
             };
-
-            // 3. UPLOAD TO FIRESTORE
+        
+            // 4. UPLOAD TO FIRESTORE
             if (db) {
                 const cloudDocMetadata = { ...newDoc };
                 delete cloudDocMetadata.src; 
@@ -3574,7 +3575,7 @@
                 
                 const scanData = { image_blob: firestoreBlob, timestamp: Date.now(), name: finalDocName };
                 await db.collection('jobs').doc(currentJobId).collection('scans').doc(finalDocId).set(scanData);
-
+        
                 if (overwriteId) {
                     const jobRef = db.collection('jobs').doc(currentJobId);
                     const jobSnap = await jobRef.get();
@@ -3582,6 +3583,18 @@
                     
                     const idx = currentDocs.findIndex(d => d.id === overwriteId);
                     if (idx !== -1) {
+                        // Preserve approval if editing
+                        if (currentDocs[idx].approverUid) {
+                            cloudDocMetadata.approverName = currentDocs[idx].approverName;
+                            cloudDocMetadata.approverUid = currentDocs[idx].approverUid;
+                            cloudDocMetadata.isSigned = true;
+                        }
+                        // Preserve Group ID if editing existing page
+                        if (currentDocs[idx].groupId && !groupId) {
+                            cloudDocMetadata.groupId = currentDocs[idx].groupId;
+                            cloudDocMetadata.pageIndex = currentDocs[idx].pageIndex;
+                        }
+                        
                         currentDocs[idx] = cloudDocMetadata; 
                         await jobRef.update({ documents: currentDocs });
                     }
@@ -3592,25 +3605,16 @@
                 }
             } 
             
-            // 4. UPDATE LOCAL VIEW (With Duplicate Prevention)
+            // 5. UPDATE LOCAL VIEW
             const job = jobs.find(j => j.id === currentJobId);
-            
-            // Ensure we have the binary source for immediate viewing
             newDoc.src = dataURL; 
             
             if (overwriteId) {
-                // OVERWRITE MODE: Find and update the existing index
                 const idx = job.documents.findIndex(d => d.id === overwriteId);
-                if (idx !== -1) {
-                    job.documents[idx] = newDoc;
-                }
+                if (idx !== -1) job.documents[idx] = newDoc;
             } else {
-                // NEW FILE MODE: Check for duplicates before pushing!
-                // This prevents the "Double Ghost" issue if the listener runs fast.
                 const alreadyExists = job.documents.some(d => d.id === newDoc.id);
-                if (!alreadyExists) {
-                    job.documents.push(newDoc);
-                }
+                if (!alreadyExists) job.documents.push(newDoc);
             }
             
             renderDocumentList(job);
@@ -4006,6 +4010,7 @@
     </script>
 </body>
 </html>
+
 
 
 
