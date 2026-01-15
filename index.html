@@ -335,103 +335,112 @@
         </div>
     </div>
 
-    <div id="view-editor" class="fixed inset-0 bg-gray-900 z-[70] hidden flex flex-col">
-        <div class="h-16 flex items-center justify-between px-4 border-b border-gray-700 bg-gray-900/95 backdrop-blur shrink-0 z-10">
-            <button onclick="cancelEdit()" class="text-gray-400 hover:text-white px-2">Cancel</button>
-            <div class="flex items-center gap-2">
-                <button onclick="handleAddPage()" class="flex items-center gap-1 bg-gray-800 hover:bg-gray-700 text-blue-400 px-3 py-1.5 rounded-lg border border-blue-500/30 text-xs font-bold active:scale-95 transition-all">
-                    <i data-lucide="plus-square" class="w-4 h-4"></i>
-                    <span>Page</span>
-                </button>
-                <button id="editor-save-btn" onclick="openSaveModal()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-lg shadow-emerald-900/20 active:scale-95 transition-all">
-                    Save
-                </button>
-            </div>
-        </div>
-        <div class="flex-1 bg-gray-800 relative overflow-hidden flex items-center justify-center p-6 bg-[radial-gradient(#374151_1px,transparent_1px)] [background-size:16px_16px]">
-            <div id="canvas-wrapper" class="shadow-2xl border border-gray-600/50"><canvas id="fabric-canvas"></canvas></div>
-        </div>
-        <div id="editor-toolbar" class="bg-gray-900 border-t border-gray-700 pb-safe-area">
-            <input type="file" id="stamp-input" accept="image/*" class="hidden" onchange="processStampUpload(this)">
-            <div class="h-24 flex items-center justify-around px-4">
-                <button onclick="rotateDoc('left')" class="flex flex-col items-center gap-1.5 group w-14">
-                    <div class="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center group-active:scale-90 transition-all text-gray-300 group-hover:text-white group-hover:border-gray-500"><i data-lucide="rotate-ccw" class="w-5 h-5"></i></div>
-                    <span class="text-[10px] text-gray-400 font-medium">Left</span>
-                </button>
-                
-                <button onclick="rotateDoc('right')" class="flex flex-col items-center gap-1.5 group w-14">
-                    <div class="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center group-active:scale-90 transition-all text-gray-300 group-hover:text-white group-hover:border-gray-500"><i data-lucide="rotate-cw" class="w-5 h-5"></i></div>
-                    <span class="text-[10px] text-gray-400 font-medium">Right</span>
-                </button>
-                
-                <div class="h-8 w-px bg-gray-700 mx-1"></div>
-
-                <div id="stamp-options-menu" class="hidden absolute bottom-24 left-1/2 -translate-x-1/2 bg-gray-800 border border-gray-700 rounded-xl shadow-xl p-2 flex flex-col gap-2 w-48 z-50">
-                    <button onclick="triggerStampCamera(); toggleStampMenu()" class="flex items-center gap-3 px-4 py-3 text-sm text-gray-200 hover:bg-gray-700 rounded-lg transition-colors text-left group">
-                        <div class="p-1.5 rounded-full bg-emerald-900/30 text-emerald-400 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
-                            <i data-lucide="camera" class="w-4 h-4"></i>
-                        </div>
-                        <span>Camera</span>
-                    </button>
-                
-                    <button onclick="triggerStampInput(); toggleStampMenu()" class="flex items-center gap-3 px-4 py-3 text-sm text-gray-200 hover:bg-gray-700 rounded-lg transition-colors text-left group">
-                        <div class="p-1.5 rounded-full bg-blue-900/30 text-blue-400 group-hover:bg-blue-500 group-hover:text-white transition-colors">
-                            <i data-lucide="image-plus" class="w-4 h-4"></i>
-                        </div>
-                        <span>Upload Image</span>
-                    </button>
-                
-                    <button onclick="handlePasteButton(); toggleStampMenu()" class="flex items-center gap-3 px-4 py-3 text-sm text-gray-200 hover:bg-gray-700 rounded-lg transition-colors text-left group">
-                        <div class="p-1.5 rounded-full bg-purple-900/30 text-purple-400 group-hover:bg-purple-500 group-hover:text-white transition-colors">
-                            <i data-lucide="clipboard-paste" class="w-4 h-4"></i>
-                        </div>
-                        <span>Paste</span>
-                    </button>
-                
-                    <div class="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-gray-800 border-r border-b border-gray-700 rotate-45"></div>
-                </div>
-                
-                <button onclick="toggleStampMenu()" class="relative flex flex-col items-center gap-1.5 group w-14">
-                    <div class="w-10 h-10 rounded-full bg-blue-900/30 border border-blue-500/50 flex items-center justify-center group-active:scale-90 transition-all text-blue-400">
-                        <i data-lucide="stamp" class="w-5 h-5"></i>
-                    </div>
-                    <span class="text-[10px] text-blue-400 font-medium">Stamp</span>
-                </button>
-
-                <button onclick="addTextToCanvas()" class="flex flex-col items-center gap-1.5 group w-14">
-                    <div class="w-10 h-10 rounded-full bg-red-900/30 border border-red-500/50 flex items-center justify-center group-active:scale-90 transition-all text-red-400"><i data-lucide="type" class="w-5 h-5"></i></div>
-                    <span class="text-[10px] text-red-400 font-medium">Text</span>
-                </button>
-            </div>
-        </div>
-        <div id="stamp-slider-container" class="hidden absolute bottom-36 left-1/2 -translate-x-1/2 w-72 bg-gray-900/95 backdrop-blur-xl p-4 rounded-2xl border border-gray-700/50 shadow-2xl z-[75] flex flex-col gap-3 transition-all duration-200">
-            <div class="flex justify-between items-center border-b border-gray-700/50 pb-2">
-                <span class="text-xs font-bold text-gray-200 uppercase tracking-wider flex items-center gap-2">
-                    <i data-lucide="sliders-horizontal" class="w-3 h-3 text-emerald-400"></i>
-                    Stamp Cleanup
-                </span>
-                
-                <div class="flex items-center gap-2">
-                    <span id="slider-value-display" class="text-[10px] font-mono text-emerald-400 bg-emerald-900/30 px-1.5 py-0.5 rounded border border-emerald-900/50">150</span>
-                    
-                    <button onclick="deleteSelectedStamp()" class="p-1.5 bg-red-900/30 hover:bg-red-500 text-red-400 hover:text-white rounded-md border border-red-900/50 transition-colors" title="Remove Stamp">
-                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                    </button>
-                </div>
-            </div>
-            
-            <div class="relative w-full py-1">
-                <input type="range" id="stamp-threshold" min="1" max="255" value="150" 
-                       class="w-full h-1.5 bg-gray-700 rounded-full appearance-none cursor-pointer accent-emerald-500 hover:accent-emerald-400 transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-                       oninput="updateStampThreshold(this.value); document.getElementById('slider-value-display').innerText = this.value">
-            </div>
-            
-            <div class="flex justify-between text-[10px] font-medium text-gray-500 uppercase tracking-tight">
-                <span class="flex items-center gap-1"><i data-lucide="minus" class="w-3 h-3"></i> Keep Detail</span>
-                <span class="flex items-center gap-1">Remove Background <i data-lucide="plus" class="w-3 h-3"></i></span>
-            </div>
+   <div id="view-editor" class="fixed inset-0 bg-gray-900 z-[70] hidden flex flex-col">
+    <div class="h-16 flex items-center justify-between px-4 border-b border-gray-700 bg-gray-900/95 backdrop-blur shrink-0 z-10">
+        <button onclick="cancelEdit()" class="text-gray-400 hover:text-white px-2">Cancel</button>
+        <div class="flex items-center gap-2">
+            <button onclick="handleAddPage()" class="flex items-center gap-1 bg-gray-800 hover:bg-gray-700 text-blue-400 px-3 py-1.5 rounded-lg border border-blue-500/30 text-xs font-bold active:scale-95 transition-all">
+                <i data-lucide="plus-square" class="w-4 h-4"></i>
+                <span>Page</span>
+            </button>
+            <button id="editor-save-btn" onclick="openSaveModal()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-lg shadow-emerald-900/20 active:scale-95 transition-all">
+                Save
+            </button>
         </div>
     </div>
+
+    <div id="editor-zoom-controls" class="absolute top-20 right-4 flex flex-col gap-2 bg-gray-900/90 backdrop-blur p-2 rounded-xl border border-gray-700 shadow-2xl z-40">
+        <button onclick="adjustEditorZoom(0.1)" class="p-2 text-gray-400 hover:text-emerald-400 hover:bg-gray-700 rounded-lg transition-colors"><i data-lucide="plus" class="w-5 h-5"></i></button>
+        <span id="editor-zoom-display" class="text-[10px] font-mono text-center text-white py-1">100%</span>
+        <button onclick="adjustEditorZoom(-0.1)" class="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded-lg transition-colors"><i data-lucide="minus" class="w-5 h-5"></i></button>
+        <button onclick="resetEditorZoom()" class="mt-1 p-1 text-[9px] font-bold text-gray-500 hover:text-white uppercase tracking-wider">Fit</button>
+    </div>
+
+    <div class="flex-1 bg-gray-800 relative overflow-hidden flex items-center justify-center p-6 bg-[radial-gradient(#374151_1px,transparent_1px)] [background-size:16px_16px] canvas-container">
+        <div id="canvas-wrapper" class="shadow-2xl border border-gray-600/50"><canvas id="fabric-canvas"></canvas></div>
+    </div>
+
+    <div id="editor-toolbar" class="bg-gray-900 border-t border-gray-700 pb-safe-area">
+        <input type="file" id="stamp-input" accept="image/*" class="hidden" onchange="processStampUpload(this)">
+        <div class="h-24 flex items-center justify-around px-4">
+            <button onclick="rotateDoc('left')" class="flex flex-col items-center gap-1.5 group w-14">
+                <div class="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center group-active:scale-90 transition-all text-gray-300 group-hover:text-white group-hover:border-gray-500"><i data-lucide="rotate-ccw" class="w-5 h-5"></i></div>
+                <span class="text-[10px] text-gray-400 font-medium">Left</span>
+            </button>
+            
+            <button onclick="rotateDoc('right')" class="flex flex-col items-center gap-1.5 group w-14">
+                <div class="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center group-active:scale-90 transition-all text-gray-300 group-hover:text-white group-hover:border-gray-500"><i data-lucide="rotate-cw" class="w-5 h-5"></i></div>
+                <span class="text-[10px] text-gray-400 font-medium">Right</span>
+            </button>
+            
+            <div class="h-8 w-px bg-gray-700 mx-1"></div>
+
+            <div id="stamp-options-menu" class="hidden absolute bottom-24 left-1/2 -translate-x-1/2 bg-gray-800 border border-gray-700 rounded-xl shadow-xl p-2 flex flex-col gap-2 w-48 z-50">
+                <button onclick="triggerStampCamera(); toggleStampMenu()" class="flex items-center gap-3 px-4 py-3 text-sm text-gray-200 hover:bg-gray-700 rounded-lg transition-colors text-left group">
+                    <div class="p-1.5 rounded-full bg-emerald-900/30 text-emerald-400 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
+                        <i data-lucide="camera" class="w-4 h-4"></i>
+                    </div>
+                    <span>Camera</span>
+                </button>
+                
+                <button onclick="triggerStampInput(); toggleStampMenu()" class="flex items-center gap-3 px-4 py-3 text-sm text-gray-200 hover:bg-gray-700 rounded-lg transition-colors text-left group">
+                    <div class="p-1.5 rounded-full bg-blue-900/30 text-blue-400 group-hover:bg-blue-500 group-hover:text-white transition-colors">
+                        <i data-lucide="image-plus" class="w-4 h-4"></i>
+                    </div>
+                    <span>Upload Image</span>
+                </button>
+                
+                <button onclick="handlePasteButton(); toggleStampMenu()" class="flex items-center gap-3 px-4 py-3 text-sm text-gray-200 hover:bg-gray-700 rounded-lg transition-colors text-left group">
+                    <div class="p-1.5 rounded-full bg-purple-900/30 text-purple-400 group-hover:bg-purple-500 group-hover:text-white transition-colors">
+                        <i data-lucide="clipboard-paste" class="w-4 h-4"></i>
+                    </div>
+                    <span>Paste</span>
+                </button>
+                
+                <div class="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-gray-800 border-r border-b border-gray-700 rotate-45"></div>
+            </div>
+            
+            <button onclick="toggleStampMenu()" class="relative flex flex-col items-center gap-1.5 group w-14">
+                <div class="w-10 h-10 rounded-full bg-blue-900/30 border border-blue-500/50 flex items-center justify-center group-active:scale-90 transition-all text-blue-400">
+                    <i data-lucide="stamp" class="w-5 h-5"></i>
+                </div>
+                <span class="text-[10px] text-blue-400 font-medium">Stamp</span>
+            </button>
+
+            <button onclick="addTextToCanvas()" class="flex flex-col items-center gap-1.5 group w-14">
+                <div class="w-10 h-10 rounded-full bg-red-900/30 border border-red-500/50 flex items-center justify-center group-active:scale-90 transition-all text-red-400"><i data-lucide="type" class="w-5 h-5"></i></div>
+                <span class="text-[10px] text-red-400 font-medium">Text</span>
+            </button>
+        </div>
+    </div>
+    
+    <div id="stamp-slider-container" class="hidden absolute bottom-36 left-1/2 -translate-x-1/2 w-72 bg-gray-900/95 backdrop-blur-xl p-4 rounded-2xl border border-gray-700/50 shadow-2xl z-[75] flex flex-col gap-3 transition-all duration-200">
+        <div class="flex justify-between items-center border-b border-gray-700/50 pb-2">
+            <span class="text-xs font-bold text-gray-200 uppercase tracking-wider flex items-center gap-2">
+                <i data-lucide="sliders-horizontal" class="w-3 h-3 text-emerald-400"></i>
+                Stamp Cleanup
+            </span>
+            
+            <div class="flex items-center gap-2">
+                <span id="slider-value-display" class="text-[10px] font-mono text-emerald-400 bg-emerald-900/30 px-1.5 py-0.5 rounded border border-emerald-900/50">150</span>
+                <button onclick="deleteSelectedStamp()" class="p-1.5 bg-red-900/30 hover:bg-red-500 text-red-400 hover:text-white rounded-md border border-red-900/50 transition-colors" title="Remove Stamp">
+                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                </button>
+            </div>
+        </div>
+        
+        <div class="relative w-full py-1">
+            <input type="range" id="stamp-threshold" min="1" max="255" value="150" 
+                   class="w-full h-1.5 bg-gray-700 rounded-full appearance-none cursor-pointer accent-emerald-500 hover:accent-emerald-400 transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                   oninput="updateStampThreshold(this.value); document.getElementById('slider-value-display').innerText = this.value">
+        </div>
+        
+        <div class="flex justify-between text-[10px] font-medium text-gray-500 uppercase tracking-tight">
+            <span class="flex items-center gap-1"><i data-lucide="minus" class="w-3 h-3"></i> Keep Detail</span>
+            <span class="flex items-center gap-1">Remove Background <i data-lucide="plus" class="w-3 h-3"></i></span>
+        </div>
+    </div>
+</div>
 
     <div id="new-job-modal" class="fixed inset-0 z-[80] hidden flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
         <div class="bg-gray-800 p-6 rounded-2xl w-full max-w-sm border border-gray-700 shadow-2xl">
@@ -531,37 +540,40 @@
         </div>
     </div>
 
-    <div id="view-lightbox" class="fixed inset-0 z-[90] hidden bg-black/95 backdrop-blur flex flex-col items-center justify-center transition-opacity">
-        <div class="absolute top-0 left-0 right-0 p-4 pt-6 bg-gradient-to-b from-black/90 to-transparent z-20 flex justify-between items-start pointer-events-none">
-            <div class="flex-1 max-w-md pointer-events-auto">
-                <label class="text-[10px] uppercase text-gray-500 font-bold tracking-wider ml-1">Document Name</label>
-                <div class="flex items-center gap-2">
-                    <input type="text" id="lightbox-filename" 
-                           class="bg-transparent text-white text-lg font-bold border-b border-gray-700 focus:border-emerald-500 focus:bg-gray-900/50 outline-none w-full py-1 transition-colors" 
-                           placeholder="Document Name"
-                           onchange="saveDocumentRename()"> <span class="text-gray-600 text-sm font-mono pt-1 select-none">.webp</span>
-                </div>
-                <p id="rename-feedback" class="text-[10px] text-emerald-500 h-4 opacity-0 transition-opacity font-medium mt-1">Saved!</p>
+    <div id="view-lightbox" class="fixed inset-0 z-[90] hidden bg-black/95 backdrop-blur flex flex-col items-center justify-center transition-opacity touch-none">
+    <div class="absolute top-0 left-0 right-0 p-4 pt-6 bg-gradient-to-b from-black/90 to-transparent z-20 flex justify-between items-start pointer-events-none">
+        <div class="flex-1 max-w-md pointer-events-auto">
+            <label class="text-[10px] uppercase text-gray-500 font-bold tracking-wider ml-1">Document Name</label>
+            <div class="flex items-center gap-2">
+                <input type="text" id="lightbox-filename" 
+                       class="bg-transparent text-white text-lg font-bold border-b border-gray-700 focus:border-emerald-500 focus:bg-gray-900/50 outline-none w-full py-1 transition-colors" 
+                       placeholder="Document Name"
+                       onchange="saveDocumentRename()"> <span class="text-gray-600 text-sm font-mono pt-1 select-none">.webp</span>
             </div>
-            <button onclick="closeLightbox()" class="text-gray-400 hover:text-white p-2 bg-black/20 rounded-full backdrop-blur pointer-events-auto ml-4">
-                <i data-lucide="x" class="w-6 h-6"></i>
-            </button>
+            <p id="rename-feedback" class="text-[10px] text-emerald-500 h-4 opacity-0 transition-opacity font-medium mt-1">Saved!</p>
         </div>
-
-        <div class="flex-1 w-full flex items-center justify-center p-4 pt-20 pb-24 overflow-hidden">
-             <img id="lightbox-img" class="max-w-full max-h-full object-contain shadow-2xl rounded-lg" src="">
-        </div>
-
-        <div class="absolute bottom-8 flex items-center gap-6 z-20">
-            <button onclick="closeLightbox()" class="px-6 py-3 bg-gray-800/80 backdrop-blur rounded-xl text-white border border-gray-700 font-medium active:scale-95 transition-transform shadow-lg shadow-black/50 hover:bg-gray-700">
-                Close
-            </button>
-        
-            <button id="lightbox-edit-btn" class="p-4 bg-emerald-500 rounded-full text-white shadow-xl shadow-emerald-500/30 active:scale-90 transition-all hover:bg-emerald-400 border-4 border-gray-900/50">
-                <i data-lucide="pen-tool" class="w-6 h-6"></i>
-            </button>
-        </div>
+        <button onclick="closeLightbox()" class="text-gray-400 hover:text-white p-2 bg-black/20 rounded-full backdrop-blur pointer-events-auto ml-4">
+            <i data-lucide="x" class="w-6 h-6"></i>
+        </button>
     </div>
+
+    <div id="lightbox-container" class="flex-1 w-full h-full flex items-center justify-center overflow-hidden relative cursor-move">
+         <img id="lightbox-img" class="max-w-none origin-center transition-transform duration-75 will-change-transform" src="" style="transform: scale(1) translate(0px, 0px);">
+    </div>
+
+    <div class="absolute bottom-24 flex items-center gap-4 bg-gray-900/90 backdrop-blur px-4 py-2 rounded-full border border-gray-700 z-30 shadow-2xl">
+        <button onclick="updateLightboxZoom(-0.2)" class="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-full transition-colors"><i data-lucide="minus" class="w-5 h-5"></i></button>
+        <span id="lightbox-zoom-display" class="text-xs font-mono text-emerald-400 w-12 text-center select-none">100%</span>
+        <button onclick="updateLightboxZoom(0.2)" class="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-full transition-colors"><i data-lucide="plus" class="w-5 h-5"></i></button>
+        <div class="w-px h-4 bg-gray-700 mx-1"></div>
+        <button onclick="resetLightboxZoom()" class="text-[10px] uppercase font-bold text-gray-500 hover:text-white transition-colors">Reset</button>
+    </div>
+
+    <div class="absolute bottom-8 flex items-center gap-6 z-20">
+        <button onclick="closeLightbox()" class="px-6 py-3 bg-gray-800/80 backdrop-blur rounded-xl text-white border border-gray-700 font-medium active:scale-95 transition-transform shadow-lg shadow-black/50 hover:bg-gray-700">Close</button>
+        <button id="lightbox-edit-btn" class="p-4 bg-emerald-500 rounded-full text-white shadow-xl shadow-emerald-500/30 active:scale-90 transition-all hover:bg-emerald-400 border-4 border-gray-900/50"><i data-lucide="pen-tool" class="w-6 h-6"></i></button>
+    </div>
+</div>
 
     <div id="rename-job-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
         <div class="bg-gray-800 p-6 rounded-2xl w-full max-w-sm border border-gray-700 shadow-2xl">
@@ -1573,6 +1585,267 @@
             
             if(typeof lucide !== 'undefined') lucide.createIcons();
         }
+
+        // --- LIGHTBOX ZOOM STATE ---
+        let lbState = { scale: 1, panning: false, pointX: 0, pointY: 0, startX: 0, startY: 0 };
+        
+        function initLightboxGestures() {
+            const img = document.getElementById('lightbox-img');
+            const container = document.getElementById('lightbox-container');
+            
+            // 1. Mouse Wheel Zoom (PC)
+            container.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                updateLightboxZoom(delta);
+            });
+        
+            // 2. Mouse Pan (PC)
+            container.addEventListener('mousedown', (e) => {
+                lbState.panning = true;
+                lbState.startX = e.clientX - lbState.pointX;
+                lbState.startY = e.clientY - lbState.pointY;
+                container.style.cursor = 'grabbing';
+            });
+        
+            window.addEventListener('mousemove', (e) => {
+                if (!lbState.panning) return;
+                e.preventDefault();
+                lbState.pointX = e.clientX - lbState.startX;
+                lbState.pointY = e.clientY - lbState.startY;
+                applyLightboxTransform();
+            });
+        
+            window.addEventListener('mouseup', () => {
+                lbState.panning = false;
+                container.style.cursor = 'move';
+            });
+        
+            // 3. Touch Gestures (Mobile Pinch & Pan)
+            let initialDist = 0;
+            let initialScale = 1;
+        
+            container.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 2) {
+                    // Start Pinch
+                    initialDist = Math.hypot(
+                        e.touches[0].pageX - e.touches[1].pageX,
+                        e.touches[0].pageY - e.touches[1].pageY
+                    );
+                    initialScale = lbState.scale;
+                } else if (e.touches.length === 1) {
+                    // Start Pan
+                    lbState.panning = true;
+                    lbState.startX = e.touches[0].clientX - lbState.pointX;
+                    lbState.startY = e.touches[0].clientY - lbState.pointY;
+                }
+            }, { passive: false });
+        
+            container.addEventListener('touchmove', (e) => {
+                e.preventDefault(); // Prevent page scrolling
+                
+                if (e.touches.length === 2) {
+                    // Pinching
+                    const dist = Math.hypot(
+                        e.touches[0].pageX - e.touches[1].pageX,
+                        e.touches[0].pageY - e.touches[1].pageY
+                    );
+                    const delta = dist - initialDist;
+                    // Sensitivity factor
+                    const newScale = initialScale + (delta * 0.005); 
+                    
+                    // Limit zoom
+                    lbState.scale = Math.min(Math.max(0.5, newScale), 5);
+                    updateZoomDisplay();
+                    applyLightboxTransform();
+                } 
+                else if (e.touches.length === 1 && lbState.panning) {
+                    // Panning
+                    lbState.pointX = e.touches[0].clientX - lbState.startX;
+                    lbState.pointY = e.touches[0].clientY - lbState.startY;
+                    applyLightboxTransform();
+                }
+            }, { passive: false });
+        
+            container.addEventListener('touchend', () => {
+                lbState.panning = false;
+            });
+        }
+
+        function updateLightboxZoom(delta) {
+            lbState.scale += delta;
+            lbState.scale = Math.min(Math.max(0.5, lbState.scale), 5); // Min 0.5x, Max 5x
+            updateZoomDisplay();
+            applyLightboxTransform();
+        }
+        
+        function resetLightboxZoom() {
+            lbState = { scale: 1, panning: false, pointX: 0, pointY: 0, startX: 0, startY: 0 };
+            updateZoomDisplay();
+            applyLightboxTransform();
+        }
+        
+        function applyLightboxTransform() {
+            const img = document.getElementById('lightbox-img');
+            if(img) {
+                img.style.transform = `translate(${lbState.pointX}px, ${lbState.pointY}px) scale(${lbState.scale})`;
+            }
+        }
+        
+        function updateZoomDisplay() {
+            const display = document.getElementById('lightbox-zoom-display');
+            if(display) display.innerText = Math.round(lbState.scale * 100) + '%';
+        }
+
+        // --- EDITOR ZOOM LOGIC ---
+
+        function initFabricZoom() {
+            if (!fabricCanvas) return;
+        
+            // 1. Mouse Wheel Zoom
+            fabricCanvas.on('mouse:wheel', function(opt) {
+                var delta = opt.e.deltaY;
+                var zoom = fabricCanvas.getZoom();
+                zoom *= 0.999 ** delta;
+                if (zoom > 5) zoom = 5;
+                if (zoom < 0.5) zoom = 0.5;
+                
+                // Zoom to point of mouse
+                fabricCanvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
+                opt.e.preventDefault();
+                opt.e.stopPropagation();
+                updateEditorZoomDisplay();
+            });
+        
+            // 2. Touch Pinch Zoom
+            // Fabric doesn't support pinch natively on all versions, so we use the canvas wrapper events
+            let initialPinchDist = 0;
+            let initialZoom = 1;
+            const canvasWrapper = document.querySelector('.canvas-container'); // Fabric wrapper
+        
+            if(canvasWrapper) {
+                canvasWrapper.addEventListener('touchstart', (e) => {
+                    if (e.touches.length === 2) {
+                        e.preventDefault();
+                        initialPinchDist = Math.hypot(
+                            e.touches[0].pageX - e.touches[1].pageX,
+                            e.touches[0].pageY - e.touches[1].pageY
+                        );
+                        initialZoom = fabricCanvas.getZoom();
+                    }
+                }, { passive: false });
+        
+                canvasWrapper.addEventListener('touchmove', (e) => {
+                    if (e.touches.length === 2) {
+                        e.preventDefault();
+                        const dist = Math.hypot(
+                            e.touches[0].pageX - e.touches[1].pageX,
+                            e.touches[0].pageY - e.touches[1].pageY
+                        );
+                        const scaleFactor = dist / initialPinchDist;
+                        let newZoom = initialZoom * scaleFactor;
+                        
+                        // Clamp
+                        if (newZoom > 5) newZoom = 5;
+                        if (newZoom < 0.5) newZoom = 0.5;
+        
+                        // Zoom to center of the two fingers
+                        const center = {
+                            x: (e.touches[0].pageX + e.touches[1].pageX) / 2,
+                            y: (e.touches[0].pageY + e.touches[1].pageY) / 2
+                        };
+                        
+                        // Need to account for canvas offset on screen
+                        const rect = canvasWrapper.getBoundingClientRect();
+                        const localCenter = {
+                            x: center.x - rect.left,
+                            y: center.y - rect.top
+                        };
+        
+                        fabricCanvas.zoomToPoint(localCenter, newZoom);
+                        updateEditorZoomDisplay();
+                    }
+                }, { passive: false });
+            }
+        
+            // 3. Panning Logic (Hold Shift + Drag OR Two fingers drag)
+            let isDragging = false;
+            let lastPosX, lastPosY;
+        
+            fabricCanvas.on('mouse:down', function(opt) {
+                var evt = opt.e;
+                // Allow pan if holding Shift Key (PC) or Alt Key
+                if (evt.shiftKey === true || evt.altKey === true) {
+                    this.isDragging = true;
+                    this.selection = false; // Disable selection while panning
+                    this.lastPosX = evt.clientX;
+                    this.lastPosY = evt.clientY;
+                }
+            });
+        
+            fabricCanvas.on('mouse:move', function(opt) {
+                if (this.isDragging) {
+                    var e = opt.e;
+                    var vpt = this.viewportTransform;
+                    vpt[4] += e.clientX - this.lastPosX;
+                    vpt[5] += e.clientY - this.lastPosY;
+                    this.requestRenderAll();
+                    this.lastPosX = e.clientX;
+                    this.lastPosY = e.clientY;
+                }
+            });
+        
+            fabricCanvas.on('mouse:up', function(opt) {
+                // on mouse up we want to recalculate new interaction
+                // for all objects, so we call setViewportTransform
+                if(this.isDragging) {
+                    this.setViewportTransform(this.viewportTransform);
+                    this.isDragging = false;
+                    this.selection = true;
+                }
+            });
+        }
+        
+        function adjustEditorZoom(delta) {
+            if (!fabricCanvas) return;
+            let zoom = fabricCanvas.getZoom();
+            zoom += delta;
+            if (zoom > 5) zoom = 5;
+            if (zoom < 0.5) zoom = 0.5;
+            
+            // Zoom to center of canvas
+            fabricCanvas.zoomToPoint({ x: fabricCanvas.width / 2, y: fabricCanvas.height / 2 }, zoom);
+            updateEditorZoomDisplay();
+        }
+        
+        function resetEditorZoom() {
+            if (!fabricCanvas || !fabricCanvas.backgroundImage) return;
+            // Fit to screen logic
+            // We can just call our existing openEditor logic which calculates "scale"
+            // Or simpler: reset viewport
+            fabricCanvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+            
+            // Re-center the background image if needed
+            const img = fabricCanvas.backgroundImage;
+            if(img) {
+                // Recalculate the original fit scale
+                const container = document.getElementById('view-editor').querySelector('.flex-1');
+                const maxWidth = container.clientWidth - 40; 
+                const maxHeight = container.clientHeight - 80;
+                // ... (This mimics the logic in openEditor)
+                // For simplicity, we just reset zoom level to 1, user can adjust.
+                fabricCanvas.setZoom(1);
+                fabricCanvas.requestRenderAll();
+            }
+            updateEditorZoomDisplay();
+        }
+        
+        function updateEditorZoomDisplay() {
+            const el = document.getElementById('editor-zoom-display');
+            if (fabricCanvas && el) {
+                el.innerText = Math.round(fabricCanvas.getZoom() * 100) + '%';
+            }
+        }
         
         async function toggleDOSigned(docId) {
             if (!currentJobId) return;
@@ -1649,6 +1922,8 @@
             });
         }
 
+        let lightboxGesturesInit = false; // Flag to ensure listeners are added only once
+
         function viewDocument(docId) {
             const sourceList = isViewingArchive ? archivedJobs : jobs;
             const job = sourceList.find(j => j.id === currentJobId);
@@ -1673,6 +1948,9 @@
             viewingDocId = docId; 
             document.body.style.cursor = 'wait';
         
+            // 1. RESET ZOOM STATE BEFORE OPENING
+            resetLightboxZoom();
+        
             ensureDocImageLoaded(job, doc).then(imgSrc => {
                 document.body.style.cursor = 'default';
                 if (imgSrc) {
@@ -1693,7 +1971,6 @@
                         nameInput.disabled = false;
                         
                         // ATTACH CLICK LISTENER HERE
-                        // We must use a function to pass the current docId correctly
                         editBtn.onclick = function() {
                             closeLightbox(); // Close preview first
                             editExistingDoc(docId); // Open editor
@@ -1701,6 +1978,13 @@
                     }
                     
                     lightbox.classList.remove('hidden');
+        
+                    // 2. INITIALIZE GESTURES (ONCE)
+                    if (!lightboxGesturesInit) {
+                        initLightboxGestures();
+                        lightboxGesturesInit = true;
+                    }
+        
                 } else {
                     alert("Error: Image data not found.");
                 }
@@ -2965,6 +3249,8 @@
             canvasWrapper.innerHTML = '<canvas id="fabric-canvas"></canvas>';
             
             fabricCanvas = new fabric.Canvas('fabric-canvas');
+           
+            initFabricZoom();
             
             let dataUrl = (typeof imageInput === 'string') ? imageInput : imageInput.toDataURL();
             
@@ -3656,6 +3942,7 @@
     </script>
 </body>
 </html>
+
 
 
 
