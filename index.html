@@ -1476,7 +1476,7 @@
             }
             emptyState.classList.add('hidden');
             
-            // 2. Sorting Logic (Standard)
+            // 2. Sorting Logic
             const sortWeights = {
                 'Quotation': 1, 'Purchase Request': 2, 'Purchase Order': 3,
                 'Service Report': 4, 'Delivery Order': 5, 'Invoice': 6,
@@ -1498,7 +1498,6 @@
             // 3. Render List
             list.innerHTML = sortedDocs.map(doc => {
                 // A. DETECT OFFLINE STATUS
-                // A doc is "Offline" if job is archived AND doc is marked offline AND source is missing locally.
                 const isOffline = (job.isArchived && doc.isOffline && !doc.src);
                 
                 // B. ICON LOGIC
@@ -1509,17 +1508,17 @@
                 
                 const displayName = doc.name.replace(/\.[^/.]+$/, "");
                 
-                // --- C. BADGE LOGIC (THE NEW ACCOUNTABILITY SYSTEM) ---
+                // --- C. BADGE LOGIC (UPDATED) ---
                 let statusBadge = '';
                 
                 if (isOffline) {
-                    // STATE: OFFLINE (Grey)
                     statusBadge = `<span class="text-[9px] px-1.5 py-0.5 rounded border border-gray-600 text-gray-400 bg-gray-800 uppercase font-bold whitespace-nowrap">OFFLINE</span>`;
                 } 
-                else {
+                else if (doc.requiresSignature) {
+                    // ONLY SHOW STATUS IF "REQUIRE APPROVAL" WAS CHECKED
+                    
                     if (doc.isSigned) {
-                        // STATE 1: SIGNED (Green - Shows Approver Name)
-                        // Fallback to "Signed" if name is missing (legacy docs)
+                        // STATE 1: SIGNED (Green)
                         const label = doc.approverName ? `by ${doc.approverName}` : 'Signed';
                         
                         statusBadge = `
@@ -1527,31 +1526,23 @@
                             <i data-lucide="check-circle-2" class="w-3 h-3"></i> ${label}
                         </button>`;
                     } 
-                    else if (doc.requiresSignature) {
-                        // STATE 2: PENDING APPROVAL (Orange Pulse - Needs Manager)
+                    else {
+                        // STATE 2: PENDING APPROVAL (Orange Pulse)
                         statusBadge = `
                         <button onclick="event.stopPropagation(); toggleDOSigned('${doc.id}')" class="ml-2 px-2 py-0.5 rounded-full bg-orange-900/40 border border-orange-500 text-[10px] text-orange-400 font-bold uppercase tracking-wider hover:bg-orange-900/60 transition-colors flex items-center gap-1 shrink-0 animate-pulse">
                             <i data-lucide="alert-circle" class="w-3 h-3"></i> Approval Req.
                         </button>`;
                     }
-                    else if (doc.docCategory === 'Delivery Order') {
-                        // STATE 3: GENERIC PENDING (Gray - Only for Delivery Orders)
-                         statusBadge = `
-                        <button onclick="event.stopPropagation(); toggleDOSigned('${doc.id}')" class="ml-2 px-2 py-0.5 rounded-full bg-gray-700/50 border border-gray-600 text-[10px] text-gray-400 font-bold uppercase tracking-wider hover:bg-gray-600 transition-colors flex items-center gap-1 shrink-0">
-                            <i data-lucide="circle" class="w-3 h-3"></i> Pending
-                        </button>`;
-                    }
                 }
+                // NOTE: We removed the "else if (Delivery Order)" block. 
+                // If approval wasn't requested, no badge is shown.
                 
                 // D. ACTION BUTTONS
                 let actionButtons = '';
                 
-                // If viewing archive OR if the specific job is archived, lock actions
                 if (isViewingArchive || job.isArchived) {
-                      // Lock Button (Read Only)
                       actionButtons = `<button class="p-2 text-gray-500 cursor-not-allowed border border-gray-700 rounded" title="Archived (Read Only)"><i data-lucide="lock" class="w-4 h-4"></i></button>`;
                 } else {
-                      // Normal Mode (Edit & Delete)
                       actionButtons += `<button onclick="event.stopPropagation(); editExistingDoc('${doc.id}')" class="p-2 text-blue-400 hover:text-white bg-blue-900/20 rounded border border-blue-900/50 mr-2"><i data-lucide="pen-tool" class="w-4 h-4"></i></button>`;
                       actionButtons += `<button onclick="event.stopPropagation(); promptDelete('${doc.id}', 'doc')" class="p-2 text-red-400 hover:text-white bg-red-900/20 rounded border border-red-900/50"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`;
                 }
@@ -3665,6 +3656,7 @@
     </script>
 </body>
 </html>
+
 
 
 
