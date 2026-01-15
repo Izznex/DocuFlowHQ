@@ -832,21 +832,29 @@
                     return;
                 }
         
+                // Check if the person LOOKING at the list is an Admin
+                // (We use the global userRole variable set during login)
+                const amIAdmin = (userRole === 'admin');
+        
                 container.innerHTML = snapshot.docs.map(doc => {
                     const user = doc.data();
                     const isMe = (currentUser && currentUser.uid === doc.id);
-                    const isAdmin = user.role === 'admin';
-                    // Check if they have the approver flag
+                    const targetIsAdmin = user.role === 'admin';
+                    
+                    // 1. CHECKBOX STATUS
+                    // STRICTLY respect the database flag. 
+                    // Being an Admin does NOT automatically make you an approver anymore.
                     const isApprover = user.isApprover === true; 
+                    const checked = isApprover ? 'checked' : '';
         
-                    // Disable checkbox if it's yourself, or if they are Admin (Admins are always approvers)
-                    const disabled = isMe || isAdmin ? 'disabled opacity-50 cursor-not-allowed' : 'cursor-pointer';
-                    // If Admin, force checked visually
-                    const checked = (isAdmin || isApprover) ? 'checked' : '';
+                    // 2. DISABLE LOGIC
+                    // If I am an Admin, I can edit ANYONE (myself, other admins, users).
+                    // If I am not an Admin, I can't edit anyone.
+                    const disabled = amIAdmin ? 'cursor-pointer' : 'disabled opacity-50 cursor-not-allowed';
                     
                     // Badge Logic
                     let roleBadge = `<span class="text-[10px] bg-gray-700 text-gray-300 px-1.5 py-0.5 rounded">User</span>`;
-                    if (isAdmin) roleBadge = `<span class="text-[10px] bg-purple-900/50 text-purple-300 border border-purple-700 px-1.5 py-0.5 rounded">Admin</span>`;
+                    if (targetIsAdmin) roleBadge = `<span class="text-[10px] bg-purple-900/50 text-purple-300 border border-purple-700 px-1.5 py-0.5 rounded">Admin</span>`;
         
                     return `
                     <div class="bg-gray-900/50 p-3 rounded-xl border border-gray-700 flex justify-between items-center">
@@ -3648,6 +3656,7 @@
     </script>
 </body>
 </html>
+
 
 
 
