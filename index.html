@@ -1494,36 +1494,27 @@
             }
             emptyState.classList.add('hidden');
             
-            // --- 1. GROUPING ALGORITHM ---
+            // Grouping
             const groups = {};
             const singles = [];
-        
             job.documents.forEach(doc => {
                 if (doc.groupId) {
                     if (!groups[doc.groupId]) groups[doc.groupId] = [];
                     groups[doc.groupId].push(doc);
-                } else {
-                    singles.push(doc);
-                }
+                } else { singles.push(doc); }
             });
         
-            // Create a flat list for sorting, using representatives for groups
             let displayItems = [...singles];
-            
             Object.values(groups).forEach(groupDocs => {
                 groupDocs.sort((a, b) => (a.pageIndex || 0) - (b.pageIndex || 0));
                 const mainDoc = groupDocs[0];
                 mainDoc._isGroup = true;
-                mainDoc._groupDocs = groupDocs; // Attach children
+                mainDoc._groupDocs = groupDocs;
                 displayItems.push(mainDoc);
             });
         
-            // --- 2. SORTING ---
-            const sortWeights = {
-                'Quotation': 1, 'Purchase Request': 2, 'Purchase Order': 3,
-                'Service Report': 4, 'Delivery Order': 5, 'Invoice': 6, 'Other': 99 
-            };
-            
+            // Sorting
+            const sortWeights = { 'Quotation': 1, 'Purchase Request': 2, 'Purchase Order': 3, 'Service Report': 4, 'Delivery Order': 5, 'Invoice': 6, 'Other': 99 };
             displayItems.sort((a, b) => {
                 const weightA = sortWeights[a.docCategory] || 99;
                 const weightB = sortWeights[b.docCategory] || 99;
@@ -1531,17 +1522,13 @@
                 return b.id.localeCompare(a.id); 
             });
             
-            // --- 3. RENDER ---
+            // Render
             list.innerHTML = displayItems.map(item => {
                 if (item._isGroup) {
-                    // === GROUP ROW (PARENT) ===
+                    // === GROUP ROW ===
                     const groupId = item.groupId;
                     const count = item._groupDocs.length;
-                    
-                    // Clean Name (Remove "Page 1")
                     let groupName = item.name.replace(/\.[^/.]+$/, "").replace(/\s*\(Page\s+\d+\).*/i, '');
-                    
-                    // Render Children Rows (Hidden by default)
                     const childrenHtml = item._groupDocs.map(doc => renderSingleRow(job, doc, true)).join('');
         
                     return `
@@ -1556,24 +1543,23 @@
                                     <span class="text-[10px] text-indigo-300 font-mono">${count} Pages</span>
                                 </div>
                             </div>
-                            
                             <div class="flex gap-2">
-                                <button onclick="event.stopPropagation(); pendingDownloadDocId='${item.id}'; executePDFDownload()" class="p-2 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500 hover:text-white rounded-lg border border-indigo-500/30 transition-colors" title="Export Combined PDF">
+                                <button onclick="event.stopPropagation(); pendingDownloadDocId='${item.id}'; openDownloadModal('${item.id}', true)" class="p-2 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500 hover:text-white rounded-lg border border-indigo-500/30 transition-colors" title="Export Combined PDF">
                                     <i data-lucide="file-stack" class="w-4 h-4"></i>
                                 </button>
-                                <button onclick="event.stopPropagation(); promptDelete('${item.id}', 'doc')" class="p-2 bg-red-900/10 text-red-400 hover:bg-red-500 hover:text-white rounded-lg border border-red-900/30 transition-colors" title="Delete Group">
+                                
+                                <button onclick="event.stopPropagation(); promptDelete('${item.id}', 'group')" class="p-2 bg-red-900/10 text-red-400 hover:bg-red-500 hover:text-white rounded-lg border border-red-900/30 transition-colors" title="Delete Group">
                                     <i data-lucide="trash-2" class="w-4 h-4"></i>
                                 </button>
+                                
                                 <i data-lucide="chevron-down" id="arrow-${groupId}" class="w-4 h-4 text-gray-500 transition-transform duration-300"></i>
                             </div>
                         </div>
-        
                         <div id="group-${groupId}" class="hidden border-t border-gray-700/50 bg-gray-900/30">
                             ${childrenHtml}
                         </div>
                     </div>`;
                 } else {
-                    // === SINGLE ROW ===
                     return `<div class="mb-3">${renderSingleRow(job, item, false)}</div>`;
                 }
             }).join('');
@@ -1581,6 +1567,66 @@
             if(typeof lucide !== 'undefined') lucide.createIcons();
         }
         
+        // Helper for rows (UPDATED EXPORT BUTTON)
+        function renderSingleRow(job, doc, isChild) {
+            // ... (Keep existing status/icon logic) ...
+            const isOffline = (job.isArchived && doc.isOffline && !doc.src);
+            let icon = 'file-text';
+            if (doc.type === 'img' || doc.type === 'scan') icon = 'image';
+            if (doc.type === 'pdf') icon = 'file';
+            if (isOffline) icon = 'cloud-off'; 
+            
+            let displayName = doc.name.replace(/\.[^/.]+$/, "");
+            if (isChild) {
+                const match = displayName.match(/Page\s+(\d+)/i);
+                displayName = match ? `Page ${match[1]}` : displayName;
+            }
+        
+            let statusBadge = '';
+            // ... (Keep existing Badge Logic) ...
+            if (isOffline) {
+                statusBadge = `<span class="text-[9px] px-1.5 py-0.5 rounded border border-gray-600 text-gray-400 bg-gray-800 uppercase font-bold">OFFLINE</span>`;
+            } else if (doc.requiresSignature) {
+                if (doc.isSigned) {
+                    const label = doc.approverName ? `by ${doc.approverName}` : 'Signed';
+                    statusBadge = `<button onclick="event.stopPropagation(); toggleDOSigned('${doc.id}')" class="ml-2 px-2 py-0.5 rounded-full bg-emerald-900/40 border border-emerald-500/50 text-[10px] text-emerald-400 font-bold uppercase tracking-wider hover:bg-emerald-900/60 transition-colors flex items-center gap-1 shrink-0"><i data-lucide="check-circle-2" class="w-3 h-3"></i> ${label}</button>`;
+                } else {
+                    statusBadge = `<button onclick="event.stopPropagation(); toggleDOSigned('${doc.id}')" class="ml-2 px-2 py-0.5 rounded-full bg-orange-900/40 border border-orange-500 text-[10px] text-orange-400 font-bold uppercase tracking-wider hover:bg-orange-900/60 transition-colors flex items-center gap-1 shrink-0 animate-pulse"><i data-lucide="alert-circle" class="w-3 h-3"></i> Req.</button>`;
+                }
+            }
+        
+            let actionButtons = '';
+            if (isViewingArchive || job.isArchived) {
+                  actionButtons = `<button class="p-2 text-gray-500 cursor-not-allowed"><i data-lucide="lock" class="w-4 h-4"></i></button>`;
+            } else {
+                  actionButtons += `<button onclick="event.stopPropagation(); editExistingDoc('${doc.id}')" class="p-2 text-blue-400 hover:text-white bg-blue-900/20 rounded border border-blue-900/50 mr-2"><i data-lucide="pen-tool" class="w-4 h-4"></i></button>`;
+                  actionButtons += `<button onclick="event.stopPropagation(); promptDelete('${doc.id}', 'doc')" class="p-2 text-red-400 hover:text-white bg-red-900/20 rounded border border-red-900/50"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`;
+            }
+        
+            const paddingClass = isChild ? "pl-4 pr-3 py-2 border-b border-gray-800 last:border-0" : "p-3 rounded-lg border border-gray-700 bg-gray-800";
+            const bgClass = isChild ? "hover:bg-gray-800/50" : "hover:bg-gray-700/50";
+        
+            return `
+            <div onclick="viewDocument('${doc.id}')" class="${paddingClass} ${bgClass} flex justify-between items-center cursor-pointer transition-colors group">
+                <div class="flex items-center gap-3 overflow-hidden">
+                    <div class="w-8 h-8 shrink-0 rounded bg-gray-900 flex items-center justify-center text-gray-400">
+                        <i data-lucide="${icon}" class="w-4 h-4"></i>
+                    </div>
+                    <div class="min-w-0">
+                        <div class="flex items-center gap-2">
+                            <p class="text-xs font-medium text-gray-300 group-hover:text-white truncate">${displayName}</p>
+                            ${statusBadge}
+                        </div>
+                        ${!isChild ? `<span class="text-[9px] text-gray-500">${doc.docCategory}</span>` : ''}
+                    </div>
+                </div>
+                <div class="flex gap-2 shrink-0 ml-2">
+                    ${!isOffline ? `<button onclick="event.stopPropagation(); openDownloadModal('${doc.id}', false)" class="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded"><i data-lucide="download" class="w-4 h-4"></i></button>` : ''}
+                    ${actionButtons}
+                </div>
+            </div>`;
+        }
+                
         // Helper to render individual rows (Used for Singles AND Children)
         function renderSingleRow(job, doc, isChild) {
             const isOffline = (job.isArchived && doc.isOffline && !doc.src);
@@ -2060,25 +2106,37 @@
 
         function promptDelete(id, type = 'doc') {
             pendingDeleteId = id;
-            pendingDeleteType = type; 
+            pendingDeleteType = type; // 'job', 'group', or 'doc'
             
             const modal = document.getElementById('delete-modal');
             const title = document.getElementById('delete-modal-title');
             const input = document.getElementById('delete-confirmation-input');
             const btn = document.getElementById('btn-confirm-delete');
             
-            if (type === 'job') {
-                title.textContent = "Delete Entire Job?";
-                title.classList.add('text-red-400');
-            } else {
-                title.textContent = "Delete Document?";
-                title.classList.remove('text-red-400');
-            }
-
+            // Reset state
             input.value = '';
             btn.innerHTML = '<span>Delete</span>';
             btn.disabled = true;
             btn.className = "flex-1 py-3 bg-gray-700 text-gray-500 font-bold rounded-xl transition-all cursor-not-allowed flex justify-center items-center gap-2";
+        
+            // Text Logic
+            if (type === 'job') {
+                title.textContent = "Delete Entire Job?";
+                title.classList.add('text-red-400');
+            } 
+            else if (type === 'group') {
+                // Find how many pages are in this group for the title
+                const job = jobs.find(j => j.id === currentJobId);
+                const doc = job ? job.documents.find(d => d.id === id) : null;
+                const count = (doc && doc.groupId) ? job.documents.filter(d => d.groupId === doc.groupId).length : 'Group';
+                
+                title.textContent = `Delete Stack (${count})?`;
+                title.classList.remove('text-red-400');
+            } 
+            else {
+                title.textContent = "Delete Document?";
+                title.classList.remove('text-red-400');
+            }
             
             modal.classList.remove('hidden');
             setTimeout(() => modal.classList.remove('opacity-0'), 10);
@@ -2111,61 +2169,73 @@
             if (!pendingDeleteId) return;
             
             const btn = document.getElementById('btn-confirm-delete');
-            const originalText = btn.innerHTML; // Save label
+            const originalText = btn.innerHTML;
             btn.innerHTML = '<div class="loader w-4 h-4 border-t-white"></div>';
             
             try {
-                // 1. DATABASE UPDATE
-                if (db) {
-                    if (pendingDeleteType === 'job') {
-                        // Delete Job (No changes needed here)
+                // 1. DELETE JOB (Entire Folder)
+                if (pendingDeleteType === 'job') {
+                    if (db) {
                         const jobRef = db.collection('jobs').doc(pendingDeleteId);
                         const snapshot = await jobRef.collection('scans').get();
                         const batch = db.batch();
-                        snapshot.docs.forEach(doc => { batch.delete(doc.ref); });
+                        snapshot.docs.forEach(doc => batch.delete(doc.ref));
                         batch.delete(jobRef);
                         await batch.commit();
-                    } else {
-                        // --- DOCUMENT DELETION FIX ---
-                        const jobRef = db.collection('jobs').doc(currentJobId);
-                        
-                        // A. Get the current list from server
-                        const jobSnap = await jobRef.get();
-                        
-                        if (jobSnap.exists) {
-                            const currentDocs = jobSnap.data().documents || [];
-                            
-                            // B. Filter out the item by ID (Ignores extra 'src' or 'selected' properties)
-                            const updatedDocs = currentDocs.filter(d => d.id !== pendingDeleteId);
-                            
-                            // C. Update the main list
-                            await jobRef.update({ documents: updatedDocs });
-                            
-                            // D. Delete the sub-collection image binary
-                            await jobRef.collection('scans').doc(pendingDeleteId).delete().catch(e => console.warn("Image delete warning:", e));
-                        }
                     }
-                } 
-                
-                // 2. LOCAL UI UPDATE (Crucial for instant feedback)
-                if (pendingDeleteType === 'job') {
+                    // UI Update
                     jobs = jobs.filter(j => j.id !== pendingDeleteId);
                     if(currentJobId === pendingDeleteId) closeJobDetails();
                     renderJobs();
                     alert("Job deleted successfully.");
-                } else {
-                    // Find the current job in memory
+                } 
+                
+                // 2. DELETE DOCUMENTS (Group or Single)
+                else {
+                    const jobRef = db ? db.collection('jobs').doc(currentJobId) : null;
+                    let idsToDelete = [];
+        
+                    // A. Determine which IDs to delete based on Type
                     const job = jobs.find(j => j.id === currentJobId);
-                    if (job && job.documents) {
-                        // Remove the doc from the local array
-                        job.documents = job.documents.filter(d => d.id !== pendingDeleteId);
-                        // Refresh the view
-                        renderDocumentList(job);
+                    if (!job) throw new Error("Job not found locally");
+        
+                    const targetDoc = job.documents.find(d => d.id === pendingDeleteId);
+                    
+                    if (pendingDeleteType === 'group' && targetDoc && targetDoc.groupId) {
+                        // DELETE ALL SIBLINGS IN THE GROUP
+                        const siblings = job.documents.filter(d => d.groupId === targetDoc.groupId);
+                        idsToDelete = siblings.map(s => s.id);
+                    } else {
+                        // DELETE ONLY THIS SPECIFIC FILE
+                        idsToDelete = [pendingDeleteId];
                     }
+        
+                    // B. Database Update
+                    if (db && jobRef) {
+                        // 1. Update the array in the main job document
+                        const jobSnap = await jobRef.get();
+                        if (jobSnap.exists) {
+                            const currentDocs = jobSnap.data().documents || [];
+                            const updatedDocs = currentDocs.filter(d => !idsToDelete.includes(d.id));
+                            await jobRef.update({ documents: updatedDocs });
+                        }
+        
+                        // 2. Delete the actual sub-collection documents
+                        const batch = db.batch();
+                        idsToDelete.forEach(id => {
+                            const ref = jobRef.collection('scans').doc(id);
+                            batch.delete(ref);
+                        });
+                        await batch.commit();
+                    }
+        
+                    // C. Local UI Update
+                    job.documents = job.documents.filter(d => !idsToDelete.includes(d.id));
+                    renderDocumentList(job);
                 }
-
+        
                 closeDeleteModal();
-
+        
             } catch (err) {
                 console.error("Delete failed:", err);
                 alert("Failed to delete. Please check connection.");
@@ -2173,7 +2243,7 @@
                 closeDeleteModal();
             }
         }
-        
+                
         async function saveDocumentRename() {
             if (!viewingDocId || !currentJobId) return;
 
@@ -3886,19 +3956,22 @@
             doc.save(`${job.client}_Bundle.pdf`);
         }
 
-        async function downloadSinglePDF(docId) {
+        // Renamed for clarity (was downloadSinglePDF)
+        async function openDownloadModal(docId, isGroup = false) {
             const sourceList = isViewingArchive ? archivedJobs : jobs;
             const job = sourceList.find(j => j.id === currentJobId);
             const doc = job.documents.find(d => d.id === docId);
             if (!doc) return;
-
+        
             pendingDownloadDocId = docId;
-
+            isGroupDownloadAction = isGroup; // <--- Set the flag based on which button was clicked
+        
             const modal = document.getElementById('download-modal');
             const img = document.getElementById('download-preview-img');
             const input = document.getElementById('pdf-filename');
             const loader = document.getElementById('preview-loader');
-
+            const title = modal.querySelector('h3'); 
+        
             modal.classList.remove('hidden');
             setTimeout(() => modal.classList.remove('opacity-0'), 10);
             
@@ -3906,16 +3979,28 @@
             img.src = '';
             loader.classList.remove('hidden');
             
-            const cleanName = doc.name.replace(/\.[^/.]+$/, "");
-            input.value = cleanName;
+            // --- SMART NAMING LOGIC ---
+            let baseName = doc.name.replace(/\.[^/.]+$/, "");
             
-            if (!input.value || input.value.startsWith('scan_')) {
-                 const dateStr = new Date().toISOString().slice(0,10);
-                 input.value = `${doc.docCategory}_${dateStr}`;
+            if (isGroup) {
+                // Group Mode: Remove "(Page X)" to get a clean name like "Delivery Order"
+                baseName = baseName.replace(/\s*\(Page\s+\d+\).*/i, '');
+                title.textContent = `Export Group PDF`;
+            } else {
+                // Single Mode: Keep the full name like "Delivery Order (Page 2)"
+                title.textContent = "Export Single Page";
             }
-
+            
+            // Fallback if name is empty
+            if (!baseName || baseName.startsWith('scan_')) {
+                 const dateStr = new Date().toISOString().slice(0,10);
+                 baseName = `${doc.docCategory}_${dateStr}`;
+            }
+        
+            input.value = baseName;
             input.select(); 
-
+        
+            // Load Preview (Always shows Page 1 of the selection)
             const imgSrc = await ensureDocImageLoaded(job, doc);
             if(imgSrc) {
                 img.src = imgSrc;
@@ -3924,6 +4009,7 @@
                 closeDownloadModal();
             }
         }
+        
         function closeDownloadModal() {
             const modal = document.getElementById('download-modal');
             modal.classList.add('opacity-0');
@@ -3936,53 +4022,88 @@
 
         async function executePDFDownload() {
             if (!pendingDownloadDocId) return;
-
+        
             const sourceList = isViewingArchive ? archivedJobs : jobs;
             const job = sourceList.find(j => j.id === currentJobId);
-            const doc = job.documents.find(d => d.id === pendingDownloadDocId);
+            const mainDoc = job.documents.find(d => d.id === pendingDownloadDocId);
+            if (!mainDoc) return;
+        
+            // --- SELECTION LOGIC ---
+            let docsToDownload = [mainDoc];
+        
+            // Only grab siblings if the USER clicked the "Group Export" button
+            if (isGroupDownloadAction && mainDoc.groupId) {
+                const siblings = job.documents.filter(d => d.groupId === mainDoc.groupId);
+                // Sort by pageIndex to ensure PDF is in correct order
+                siblings.sort((a, b) => (a.pageIndex || 0) - (b.pageIndex || 0));
+                docsToDownload = siblings;
+            } 
+            // Else: docsToDownload remains just [mainDoc] (Single page export)
+        
             const filenameInput = document.getElementById('pdf-filename').value.trim();
             const finalFilename = (filenameInput || "document") + ".pdf";
-
+        
             closeDownloadModal();
             
+            // Show loading icon on the main header button (optional UX touch)
+            const downloadBtn = document.querySelector('button[onclick="downloadJobBundle()"]');
+            if(downloadBtn) downloadBtn.innerHTML = '<div class="loader w-4 h-4"></div>';
+        
             try {
-                const imgSrc = await ensureDocImageLoaded(job, doc);
-                const img = new Image();
-                img.src = imgSrc;
-                await new Promise(r => img.onload = r);
-
-                const canvas = document.createElement('canvas');
-                canvas.width = img.width;
-                canvas.height = img.height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0);
-                const cleanDataURL = canvas.toDataURL('image/jpeg', 0.85);
-
                 const { jsPDF } = window.jspdf;
-                const isLandscape = img.width > img.height;
-                const pdf = new jsPDF({
-                    orientation: isLandscape ? 'l' : 'p',
-                    unit: 'mm',
-                    format: 'a4'
-                });
-
-                const pageWidth = pdf.internal.pageSize.getWidth();
-                const pageHeight = pdf.internal.pageSize.getHeight();
-                const widthRatio = pageWidth / img.width;
-                const heightRatio = pageHeight / img.height;
-                const ratio = Math.min(widthRatio, heightRatio);
+                // Initialize PDF (Orientation will be set per page)
+                const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
                 
-                const finalW = img.width * ratio;
-                const finalH = img.height * ratio;
-                const x = (pageWidth - finalW) / 2;
-                const y = (pageHeight - finalH) / 2;
-
-                pdf.addImage(cleanDataURL, 'JPEG', x, y, finalW, finalH);
+                for (let i = 0; i < docsToDownload.length; i++) {
+                    const doc = docsToDownload[i];
+                    const imgSrc = await ensureDocImageLoaded(job, doc);
+                    
+                    const img = new Image();
+                    img.src = imgSrc;
+                    await new Promise(r => img.onload = r);
+        
+                    // Clean data
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    const cleanDataURL = canvas.toDataURL('image/jpeg', 0.85);
+        
+                    const isLandscape = img.width > img.height;
+                    
+                    // Page Management
+                    if (i > 0) {
+                        pdf.addPage('a4', isLandscape ? 'l' : 'p');
+                    } else {
+                        if (isLandscape) pdf.deletePage(1); 
+                        if (isLandscape) pdf.addPage('a4', 'l');
+                    }
+        
+                    const pageWidth = pdf.internal.pageSize.getWidth();
+                    const pageHeight = pdf.internal.pageSize.getHeight();
+                    
+                    // Scale to fit page
+                    const widthRatio = pageWidth / img.width;
+                    const heightRatio = pageHeight / img.height;
+                    const ratio = Math.min(widthRatio, heightRatio);
+                    
+                    const finalW = img.width * ratio;
+                    const finalH = img.height * ratio;
+                    const x = (pageWidth - finalW) / 2;
+                    const y = (pageHeight - finalH) / 2;
+        
+                    pdf.addImage(cleanDataURL, 'JPEG', x, y, finalW, finalH);
+                }
+        
                 pdf.save(finalFilename);
-
+        
             } catch (err) {
                 console.error("PDF Gen Error:", err);
                 alert("Failed to generate PDF.");
+            } finally {
+                if(downloadBtn) downloadBtn.innerHTML = '<i data-lucide="file-stack" class="w-5 h-5"></i>';
+                if(typeof lucide !== 'undefined') lucide.createIcons();
             }
         }
         
@@ -4010,62 +4131,3 @@
     </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
