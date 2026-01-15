@@ -552,11 +552,14 @@
              <img id="lightbox-img" class="max-w-full max-h-full object-contain shadow-2xl rounded-lg" src="">
         </div>
 
-        <div class="absolute bottom-8 flex gap-4 z-20">
-             <button onclick="closeLightbox()" class="px-6 py-3 bg-gray-800 rounded-xl text-white border border-gray-700 font-medium active:scale-95 transition-transform shadow-lg shadow-black/50">Close</button>
-             <button id="lightbox-edit-btn" class="px-6 py-3 bg-emerald-600 rounded-xl text-white font-bold shadow-lg shadow-emerald-500/20 active:scale-95 transition-transform flex items-center gap-2">
-                <i data-lucide="pen-tool" class="w-4 h-4"></i> Edit Image
-             </button>
+        <div class="absolute bottom-8 flex items-center gap-6 z-20">
+            <button onclick="closeLightbox()" class="px-6 py-3 bg-gray-800/80 backdrop-blur rounded-xl text-white border border-gray-700 font-medium active:scale-95 transition-transform shadow-lg shadow-black/50 hover:bg-gray-700">
+                Close
+            </button>
+        
+            <button id="lightbox-edit-btn" class="p-4 bg-emerald-500 rounded-full text-white shadow-xl shadow-emerald-500/30 active:scale-90 transition-all hover:bg-emerald-400 border-4 border-gray-900/50">
+                <i data-lucide="pen-tool" class="w-6 h-6"></i>
+            </button>
         </div>
     </div>
 
@@ -1663,9 +1666,7 @@
         
             // --- COLD STORAGE CHECK ---
             if (job.isArchived && doc.isOffline && !doc.src) {
-                // Get the saved filename, or default to generic if missing
                 const requiredFile = job.archiveFilename || "the archive file";
-                
                 const confirmLoad = confirm(
                     `🔒 Content Offline\n\nTo view this image, you need to load the backup file:\n\n📂 ${requiredFile}\n\nWould you like to load it now?`
                 );
@@ -1692,13 +1693,20 @@
                     img.src = imgSrc;
                     nameInput.value = doc.name.replace(/\.[^/.]+$/, "");
                     
-                    // Disable edit if archived
+                    // --- FIX: BUTTON LOGIC ---
                     if (job.isArchived) {
                         editBtn.classList.add('hidden');
                         nameInput.disabled = true;
                     } else {
                         editBtn.classList.remove('hidden');
                         nameInput.disabled = false;
+                        
+                        // ATTACH CLICK LISTENER HERE
+                        // We must use a function to pass the current docId correctly
+                        editBtn.onclick = function() {
+                            closeLightbox(); // Close preview first
+                            editExistingDoc(docId); // Open editor
+                        };
                     }
                     
                     lightbox.classList.remove('hidden');
@@ -3657,6 +3665,7 @@
     </script>
 </body>
 </html>
+
 
 
 
