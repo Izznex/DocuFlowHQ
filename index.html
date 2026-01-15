@@ -446,24 +446,26 @@
     </div>
 
     <div id="invite-modal" class="fixed inset-0 z-[90] hidden flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
-        <div class="bg-gray-800 p-6 rounded-2xl w-full max-w-md border border-gray-700 shadow-2xl flex flex-col max-h-[80vh]">
-            <div class="flex justify-between items-center mb-6">
-                <div>
-                    <h3 class="text-lg font-bold text-white">Team Invites</h3>
-                    <p class="text-xs text-gray-400">Manage access links.</p>
-                </div>
-                <button onclick="closeInviteModal()" class="text-gray-400 hover:text-white p-2">
-                    <i data-lucide="x" class="w-5 h-5"></i>
+        <div class="bg-gray-800 p-6 rounded-2xl w-full max-w-md border border-gray-700 shadow-2xl flex flex-col max-h-[85vh]">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold text-white">Team Management</h3>
+                <button onclick="closeInviteModal()" class="text-gray-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+    
+            <div class="flex border-b border-gray-700 mb-4">
+                <button onclick="switchTeamTab('invites')" id="tab-invites" class="flex-1 py-2 text-sm font-bold text-emerald-400 border-b-2 border-emerald-400">Invites</button>
+                <button onclick="switchTeamTab('members')" id="tab-members" class="flex-1 py-2 text-sm font-bold text-gray-500 hover:text-white">Members</button>
+            </div>
+    
+            <div id="view-invites-list" class="flex-1 overflow-y-auto flex flex-col">
+                <button onclick="generateNewInvite()" class="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/20 active:scale-95 transition-all flex justify-center items-center gap-2 mb-4 shrink-0">
+                    <i data-lucide="plus" class="w-4 h-4"></i> Generate Link
                 </button>
+                <div id="invite-list-container" class="space-y-3"></div>
             </div>
     
-            <button onclick="generateNewInvite()" class="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/20 active:scale-95 transition-all flex justify-center items-center gap-2 mb-6">
-                <i data-lucide="plus" class="w-4 h-4"></i> Generate New Link
-            </button>
-    
-            <div class="flex-1 overflow-y-auto space-y-3 pr-2" id="invite-list-container">
-                <div class="text-center text-gray-500 py-4 text-sm">Loading invites...</div>
-            </div>
+            <div id="view-members-list" class="hidden flex-1 overflow-y-auto space-y-3">
+                </div>
         </div>
     </div>
 
@@ -471,6 +473,12 @@
         <div class="bg-gray-800 p-6 rounded-2xl w-full max-w-sm border border-gray-700 shadow-2xl">
             <h3 class="text-lg font-bold text-white mb-1">Save Document</h3>
             <p class="text-xs text-gray-400 mb-6">Confirm the document category.</p>
+        <div class="mb-6 flex items-center gap-3 p-3 bg-gray-900/50 rounded-lg border border-gray-700">
+            <input type="checkbox" id="require-sign-checkbox" class="w-5 h-5 rounded border-gray-600 text-emerald-500 focus:ring-emerald-500 bg-gray-800">
+            <label for="require-sign-checkbox" class="text-sm text-gray-300 font-medium select-none cursor-pointer">
+                Require Manager Approval
+            </label>
+        </div>
             
             <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Category</label>
             <div class="relative mb-8">
@@ -770,13 +778,121 @@
             }
         }
         
+        // Global Flags
+        let userRole = 'user'; 
+        let userIsApprover = false;
+        
         async function loadUserProfile(uid) {
             const doc = await db.collection('users').doc(uid).get();
             if (doc.exists) {
-                userRole = doc.data().role;
+                const data = doc.data();
+                
+                // 1. Role (Admin vs User) - Controls archiving, team invite, delete jobs
+                userRole = data.role; 
+                
+                // 2. Approver Status - Controls signing documents
+                // We strictly look at the database flag. Admin does NOT imply Approver anymore.
+                userIsApprover = data.isApprover === true; 
+                
+                console.log(`👤 User Loaded: Role=[${userRole}], Approver=[${userIsApprover}]`);
+            }
+        }
+
+        // --- TEAM MANAGEMENT LOGIC ---
+
+        function switchTeamTab(tab) {
+            const invitesView = document.getElementById('view-invites-list');
+            const membersView = document.getElementById('view-members-list');
+            const tabInvites = document.getElementById('tab-invites');
+            const tabMembers = document.getElementById('tab-members');
+        
+            if (tab === 'invites') {
+                invitesView.classList.remove('hidden');
+                membersView.classList.add('hidden');
+                tabInvites.className = "flex-1 py-2 text-sm font-bold text-emerald-400 border-b-2 border-emerald-400";
+                tabMembers.className = "flex-1 py-2 text-sm font-bold text-gray-500 hover:text-white";
+                loadInvites();
+            } else {
+                invitesView.classList.add('hidden');
+                membersView.classList.remove('hidden');
+                tabInvites.className = "flex-1 py-2 text-sm font-bold text-gray-500 hover:text-white";
+                tabMembers.className = "flex-1 py-2 text-sm font-bold text-emerald-400 border-b-2 border-emerald-400";
+                loadTeamMembers();
             }
         }
         
+        async function loadTeamMembers() {
+            const container = document.getElementById('view-members-list');
+            container.innerHTML = '<div class="loader mx-auto mt-4"></div>';
+        
+            try {
+                const snapshot = await db.collection('users').orderBy('createdAt', 'desc').get();
+                
+                if (snapshot.empty) {
+                    container.innerHTML = '<div class="text-center text-gray-500 text-sm mt-4">No members found.</div>';
+                    return;
+                }
+        
+                container.innerHTML = snapshot.docs.map(doc => {
+                    const user = doc.data();
+                    const isMe = (currentUser && currentUser.uid === doc.id);
+                    const isAdmin = user.role === 'admin';
+                    // Check if they have the approver flag
+                    const isApprover = user.isApprover === true; 
+        
+                    // Disable checkbox if it's yourself, or if they are Admin (Admins are always approvers)
+                    const disabled = isMe || isAdmin ? 'disabled opacity-50 cursor-not-allowed' : 'cursor-pointer';
+                    // If Admin, force checked visually
+                    const checked = (isAdmin || isApprover) ? 'checked' : '';
+                    
+                    // Badge Logic
+                    let roleBadge = `<span class="text-[10px] bg-gray-700 text-gray-300 px-1.5 py-0.5 rounded">User</span>`;
+                    if (isAdmin) roleBadge = `<span class="text-[10px] bg-purple-900/50 text-purple-300 border border-purple-700 px-1.5 py-0.5 rounded">Admin</span>`;
+        
+                    return `
+                    <div class="bg-gray-900/50 p-3 rounded-xl border border-gray-700 flex justify-between items-center">
+                        <div class="overflow-hidden">
+                            <div class="font-bold text-sm text-white truncate w-40">${user.email}</div>
+                            <div class="flex items-center gap-2 mt-1">
+                                ${roleBadge}
+                                ${isMe ? '<span class="text-[10px] text-emerald-500">(You)</span>' : ''}
+                            </div>
+                        </div>
+                        
+                        <div class="flex items-center gap-2 bg-gray-800 p-2 rounded-lg border border-gray-600">
+                            <input type="checkbox" id="check-${doc.id}" ${checked} ${disabled} 
+                                   onchange="toggleUserApprover('${doc.id}', this)"
+                                   class="w-4 h-4 rounded border-gray-500 text-emerald-500 focus:ring-emerald-500 bg-gray-700 ${disabled}">
+                            <label for="check-${doc.id}" class="text-[10px] font-bold text-gray-400 uppercase select-none ${disabled}">
+                                Approver
+                            </label>
+                        </div>
+                    </div>`;
+                }).join('');
+        
+            } catch (e) {
+                console.error(e);
+                container.innerHTML = '<div class="text-red-400 text-center text-sm">Error loading members</div>';
+            }
+        }
+        
+        async function toggleUserApprover(targetUid, checkbox) {
+            // Optimistic UI update is handled by the browser checkbox itself
+            
+            const isApprover = checkbox.checked;
+            
+            try {
+                await db.collection('users').doc(targetUid).update({
+                    isApprover: isApprover
+                });
+                console.log(`User ${targetUid} approver status: ${isApprover}`);
+            } catch (e) {
+                console.error("Failed to update role", e);
+                checkbox.checked = !isApprover; // Revert
+                alert("Failed to update permissions.");
+            }
+        }
+                
         function enterApp() {
             console.log("🚀 Entering App...");
         
@@ -1342,6 +1458,7 @@
             const list = document.getElementById('document-list');
             const emptyState = document.getElementById('empty-docs');
             
+            // 1. Empty State Check
             if (!job.documents || job.documents.length === 0) { 
                 list.innerHTML = ''; 
                 emptyState.classList.remove('hidden'); 
@@ -1349,13 +1466,13 @@
             }
             emptyState.classList.add('hidden');
             
-            // Sorting Logic (Same as before)
+            // 2. Sorting Logic (Standard)
             const sortWeights = {
                 'Quotation': 1, 'Purchase Request': 2, 'Purchase Order': 3,
                 'Service Report': 4, 'Delivery Order': 5, 'Invoice': 6,
                 'Permit to Work': 7, 'Other': 99 
             };
-        
+            
             const sortedDocs = [...job.documents].sort((a, b) => {
                 const weightA = sortWeights[a.docCategory] || 99;
                 const weightB = sortWeights[b.docCategory] || 99;
@@ -1367,58 +1484,68 @@
                 
                 return b.id.localeCompare(a.id); 
             });
-        
+            
+            // 3. Render List
             list.innerHTML = sortedDocs.map(doc => {
-                // --- 1. DETECT OFFLINE STATUS ---
-                // A doc is "Offline" if the job is archived AND the doc is marked offline AND we don't have the source loaded yet.
+                // A. DETECT OFFLINE STATUS
+                // A doc is "Offline" if job is archived AND doc is marked offline AND source is missing locally.
                 const isOffline = (job.isArchived && doc.isOffline && !doc.src);
                 
-                // --- 2. ICON LOGIC ---
+                // B. ICON LOGIC
                 let icon = 'file-text';
                 if (doc.type === 'img' || doc.type === 'scan') icon = 'image';
                 if (doc.type === 'pdf') icon = 'file';
-                
-                // If offline, override with cloud-off icon
                 if (isOffline) icon = 'cloud-off'; 
-        
+                
                 const displayName = doc.name.replace(/\.[^/.]+$/, "");
-                const isDO = doc.docCategory === 'Delivery Order';
-        
-                // --- 3. BADGE LOGIC ---
+                
+                // --- C. BADGE LOGIC (THE NEW ACCOUNTABILITY SYSTEM) ---
                 let statusBadge = '';
                 
                 if (isOffline) {
-                    // New "Offline" Badge
+                    // STATE: OFFLINE (Grey)
                     statusBadge = `<span class="text-[9px] px-1.5 py-0.5 rounded border border-gray-600 text-gray-400 bg-gray-800 uppercase font-bold whitespace-nowrap">OFFLINE</span>`;
                 } 
-                else if (isDO) {
-                    // Existing DO Logic (Only show if NOT offline)
+                else {
                     if (doc.isSigned) {
+                        // STATE 1: SIGNED (Green - Shows Approver Name)
+                        // Fallback to "Signed" if name is missing (legacy docs)
+                        const label = doc.approverName ? `by ${doc.approverName}` : 'Signed';
+                        
                         statusBadge = `
                         <button onclick="event.stopPropagation(); toggleDOSigned('${doc.id}')" class="ml-2 px-2 py-0.5 rounded-full bg-emerald-900/40 border border-emerald-500/50 text-[10px] text-emerald-400 font-bold uppercase tracking-wider hover:bg-emerald-900/60 transition-colors flex items-center gap-1 shrink-0">
-                            <i data-lucide="check-circle-2" class="w-3 h-3"></i> Signed
+                            <i data-lucide="check-circle-2" class="w-3 h-3"></i> ${label}
                         </button>`;
-                    } else {
+                    } 
+                    else if (doc.requiresSignature) {
+                        // STATE 2: PENDING APPROVAL (Orange Pulse - Needs Manager)
                         statusBadge = `
+                        <button onclick="event.stopPropagation(); toggleDOSigned('${doc.id}')" class="ml-2 px-2 py-0.5 rounded-full bg-orange-900/40 border border-orange-500 text-[10px] text-orange-400 font-bold uppercase tracking-wider hover:bg-orange-900/60 transition-colors flex items-center gap-1 shrink-0 animate-pulse">
+                            <i data-lucide="alert-circle" class="w-3 h-3"></i> Approval Req.
+                        </button>`;
+                    }
+                    else if (doc.docCategory === 'Delivery Order') {
+                        // STATE 3: GENERIC PENDING (Gray - Only for Delivery Orders)
+                         statusBadge = `
                         <button onclick="event.stopPropagation(); toggleDOSigned('${doc.id}')" class="ml-2 px-2 py-0.5 rounded-full bg-gray-700/50 border border-gray-600 text-[10px] text-gray-400 font-bold uppercase tracking-wider hover:bg-gray-600 transition-colors flex items-center gap-1 shrink-0">
                             <i data-lucide="circle" class="w-3 h-3"></i> Pending
                         </button>`;
                     }
                 }
-        
-                // --- 4. ACTION BUTTONS ---
+                
+                // D. ACTION BUTTONS
                 let actionButtons = '';
                 
                 // If viewing archive OR if the specific job is archived, lock actions
                 if (isViewingArchive || job.isArchived) {
-                     // Lock Button (No Edit/Delete allowed in Archive Mode)
-                     actionButtons = `<button class="p-2 text-gray-500 cursor-not-allowed border border-gray-700 rounded" title="Archived (Read Only)"><i data-lucide="lock" class="w-4 h-4"></i></button>`;
+                      // Lock Button (Read Only)
+                      actionButtons = `<button class="p-2 text-gray-500 cursor-not-allowed border border-gray-700 rounded" title="Archived (Read Only)"><i data-lucide="lock" class="w-4 h-4"></i></button>`;
                 } else {
-                     // Normal Mode
-                     actionButtons += `<button onclick="event.stopPropagation(); editExistingDoc('${doc.id}')" class="p-2 text-blue-400 hover:text-white bg-blue-900/20 rounded border border-blue-900/50 mr-2"><i data-lucide="pen-tool" class="w-4 h-4"></i></button>`;
-                     actionButtons += `<button onclick="event.stopPropagation(); promptDelete('${doc.id}', 'doc')" class="p-2 text-red-400 hover:text-white bg-red-900/20 rounded border border-red-900/50"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`;
+                      // Normal Mode (Edit & Delete)
+                      actionButtons += `<button onclick="event.stopPropagation(); editExistingDoc('${doc.id}')" class="p-2 text-blue-400 hover:text-white bg-blue-900/20 rounded border border-blue-900/50 mr-2"><i data-lucide="pen-tool" class="w-4 h-4"></i></button>`;
+                      actionButtons += `<button onclick="event.stopPropagation(); promptDelete('${doc.id}', 'doc')" class="p-2 text-red-400 hover:text-white bg-red-900/20 rounded border border-red-900/50"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`;
                 }
-        
+                
                 return `
                 <div onclick="viewDocument('${doc.id}')" class="bg-gray-800 p-3 rounded-lg border border-gray-700 flex justify-between items-center cursor-pointer hover:bg-gray-700/50 transition-colors group">
                     <div class="flex items-center gap-3 overflow-hidden">
@@ -1445,49 +1572,59 @@
             
             if(typeof lucide !== 'undefined') lucide.createIcons();
         }
+        
         async function toggleDOSigned(docId) {
             if (!currentJobId) return;
             const job = jobs.find(j => j.id === currentJobId);
             const doc = job.documents.find(d => d.id === docId);
-            
             if (!doc) return;
-
-            // 1. Optimistic Update (Immediate UI Change)
+        
+            // --- STRICT PERMISSION CHECK ---
+            if (doc.requiresSignature) {
+                // If the document is marked "Require Manager Approval":
+                // We ONLY allow users who have the 'isApprover' flag.
+                // Even Admins get blocked here if they don't have the checkbox ticked.
+                if (!userIsApprover) {
+                    alert("⛔ Authorization Required\n\nYou can edit/upload the document, but only a designated Approver can mark it as Final/Signed.");
+                    return;
+                }
+            } 
+            // Note: If requiresSignature is FALSE, we allow anyone to toggle it (standard workflow),
+            // or you can restrict that too if you prefer.
+        
+            // 2. PREPARE DATA
             const newStatus = !doc.isSigned;
+            
+            // Capture the name of the actual person clicking the button
+            const approverName = newStatus ? (currentUser.email.split('@')[0]) : null;
+            const approverUid = newStatus ? currentUser.uid : null;
+        
+            // 3. OPTIMISTIC UPDATE
             doc.isSigned = newStatus;
+            doc.approverName = approverName;
+            doc.approverUid = approverUid;
             
-            renderDocumentList(job); // Refresh list to toggle button
+            renderDocumentList(job); 
             
-            // 2. Update Header Status (Open -> Completed or vice versa)
-            const overallStatus = getJobStatus(job);
-            const statusEl = document.getElementById('detail-status');
-            statusEl.textContent = overallStatus;
-            statusEl.className = overallStatus === 'Completed'
-                ? 'text-[10px] px-2 py-1 rounded bg-emerald-900/50 text-emerald-400 font-bold uppercase tracking-wider border border-emerald-800'
-                : 'text-[10px] px-2 py-1 rounded bg-yellow-900/50 text-yellow-400 font-bold uppercase tracking-wider border border-yellow-800';
-
-            // 3. Update Database
+            // 4. DATABASE SYNC
             if (db) {
                 try {
                     const jobRef = db.collection('jobs').doc(currentJobId);
-                    
-                    // We must fetch fresh data to update array correctly
-                    // (Firestore cannot update a specific object property inside an array directly)
                     const jobSnap = await jobRef.get();
                     if (jobSnap.exists) {
                         let currentDocs = jobSnap.data().documents;
                         const idx = currentDocs.findIndex(d => d.id === docId);
-                        
                         if (idx !== -1) {
                             currentDocs[idx].isSigned = newStatus;
+                            currentDocs[idx].approverName = approverName;
+                            currentDocs[idx].approverUid = approverUid;
                             await jobRef.update({ documents: currentDocs });
                         }
                     }
                 } catch (e) {
-                    console.error("Toggle Error:", e);
+                    console.error("Sync Error:", e);
                     alert("Sync failed. Check connection.");
-                    // Revert on failure
-                    doc.isSigned = !newStatus; 
+                    doc.isSigned = !newStatus; // Revert
                     renderDocumentList(job);
                 }
             }
@@ -2880,27 +3017,36 @@
         function openSaveModal() {
             const modal = document.getElementById('save-modal');
             const select = document.getElementById('doc-type-select');
-
-            // --- AUTO-SET CATEGORY ---
-            // If we are editing an existing document, find it and select its category
+            
+            // Default Checkbox State
+            const checkbox = document.getElementById('require-sign-checkbox');
+            if (checkbox) checkbox.checked = false; 
+        
+            // --- AUTO-SET CATEGORY & RESTORE CHECKBOX ---
             if (editingDocId && currentJobId) {
                 const job = jobs.find(j => j.id === currentJobId);
                 if (job) {
                     const doc = job.documents.find(d => d.id === editingDocId);
-                    if (doc && doc.docCategory) {
-                        select.value = doc.docCategory;
+                    if (doc) {
+                        if (doc.docCategory) select.value = doc.docCategory;
+                        
+                        // Restore checkbox state if editing
+                        if (checkbox && doc.requiresSignature) {
+                            checkbox.checked = true;
+                        }
                     }
                 }
             } else {
-                 // Optional: Reset to default if it's a new scan
                  select.value = "Delivery Order"; 
             }
             
+            // ... rest of your modal showing logic ...
             modal.classList.remove('hidden');
             document.getElementById('ocr-loading').classList.add('hidden');
             document.getElementById('btn-cancel-save').classList.remove('hidden');
             document.getElementById('btn-confirm-save').classList.remove('hidden');
         }
+        
         function closeSaveModal() { document.getElementById('save-modal').classList.add('hidden'); }
 
         function parseSmartMetadata(text) {
@@ -2915,8 +3061,14 @@
         }
 
         async function confirmSave() {
+            // 1. GET UI ELEMENTS
             const categorySelect = document.getElementById('doc-type-select');
             const category = categorySelect.value;
+            const saveBtn = document.getElementById('btn-confirm-save');
+            const requireSignCheckbox = document.getElementById('require-sign-checkbox');
+            
+            // 2. READ SETTINGS
+            const requiresSignature = requireSignCheckbox ? requireSignCheckbox.checked : false;
             let isSigned = false;
             
             if (editingDocId && currentJobId) {
@@ -2927,39 +3079,26 @@
                 }
             }
         
-            const saveBtn = document.getElementById('btn-confirm-save');
             const originalBtnText = saveBtn.innerHTML;
             saveBtn.innerHTML = 'Saving...';
             saveBtn.disabled = true;
         
             try {
-                // --- 🚀 SMART RESOLUTION EXPORT ---
-                // We want the final image to be roughly 2500px on the longest side.
-                // This is high enough for crisp text, but low enough for email/storage.
-                
+                // --- SMART RESOLUTION EXPORT ---
                 const targetSize = 2500; 
                 const currentLongestSide = Math.max(fabricCanvas.width, fabricCanvas.height);
                 
-                // Calculate exact multiplier to hit 2500px
-                // If image is already smaller than 2500px, we use the inverse of our screen scale (restore original).
                 let finalMultiplier = targetSize / currentLongestSide;
-                
-                // Safety: Don't upscale tiny images too much (e.g. icons), cap at restoring original size
                 if (editorScaleFactor > 0) {
                      const originalResMultiplier = 1 / editorScaleFactor;
-                     // Use whichever is smaller: the target 2500px OR the original image size
                      finalMultiplier = Math.min(finalMultiplier, originalResMultiplier);
                 }
         
-                // Export as JPEG (Better for photos of documents than WebP at high res)
-                // Quality 0.80 is the "Goldilocks" zone: nearly identical to 0.92 visually, but 40% smaller file.
                 const currentDataURL = fabricCanvas.toDataURL({ 
                     format: 'jpeg', 
                     quality: 0.8, 
                     multiplier: finalMultiplier 
                 });
-                
-                // ... (The rest of your existing confirmSave logic below remains the same) ...
                 
                 // Handle Batch vs Single
                 let finalSaveList = [];
@@ -2971,44 +3110,33 @@
                 
                 const totalPages = finalSaveList.length;
                 const baseId = Math.random().toString(36).substr(2, 4).toUpperCase();
-
-                // Save Loop
+        
+                // 3. SAVE LOOP
                 for (let i = 0; i < totalPages; i++) {
                     const dataUrl = finalSaveList[i];
                     let pageSuffix = totalPages > 1 ? ` (Page ${i + 1})` : "";
                     
-                    // --- OVERWRITE LOGIC ---
-                    // We only overwrite the ID for the FIRST page (i === 0).
-                    // If you added extra pages to an existing doc, those get new IDs.
                     let idToOverwrite = null;
                     if (i === 0 && editingDocId) {
                         idToOverwrite = editingDocId;
                     }
-
-                    // Pass 'idToOverwrite' as the last argument to our updated function
-                    await saveSingleDocument(dataUrl, category, isSigned, baseId, pageSuffix, idToOverwrite);
+        
+                    // PASS 'requiresSignature' AS THE LAST ARGUMENT
+                    await saveSingleDocument(dataUrl, category, isSigned, baseId, pageSuffix, idToOverwrite, requiresSignature);
                 }
-
-                // Cleanup
+        
+                // Cleanup & Reset
                 isPdfBatch = false;
-                batchQueue = []; 
-                
+                batchQueue = [];
                 const title = document.querySelector('#add-menu-modal h3');
                 if(title) title.textContent = 'Add Document';
-
+        
                 closeSaveModal(); 
                 cancelEdit(); 
                 editingDocId = null;
-
+        
                 if (totalPages > 1) alert(`✅ Saved ${totalPages} pages successfully.`);
-
-                // Optional: Check job completion
-                const job = jobs.find(j => j.id === currentJobId);
-                const newStatus = getJobStatus(job);
-                if (newStatus === 'Completed') {
-                    setTimeout(() => alert("🎉 Job Completed! DO is signed."), 200);
-                }
-
+        
             } catch (err) {
                 console.error("Save Error", err);
                 alert("Error saving document.");
@@ -3076,6 +3204,9 @@
                 ocrText: "", 
                 smartData: {}, 
                 isSigned: isSigned
+                requiresSignature: requiresSignature, 
+                approverName: null, // Will store "Manager Name" later
+                approverUid: null   // Will store "user_123" later
             };
 
             // 3. UPLOAD TO FIRESTORE
@@ -3518,6 +3649,7 @@
     </script>
 </body>
 </html>
+
 
 
 
