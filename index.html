@@ -3477,32 +3477,49 @@
             const requiresSignature = requireSignCheckbox ? requireSignCheckbox.checked : false;
             let isSigned = false;
             
+            // --- PRESERVE GROUP LOGIC ---
+            let existingGroupId = null;
+            let existingPageIndex = 0;
+
             if (editingDocId && currentJobId) {
                 const job = jobs.find(j => j.id === currentJobId);
                 if (job) {
                     const doc = job.documents.find(d => d.id === editingDocId);
-                    if (doc) isSigned = doc.isSigned; 
+                    if (doc) {
+                        isSigned = doc.isSigned;
+                        existingGroupId = doc.groupId || null;
+                        existingPageIndex = doc.pageIndex || 0;
+                    }
                 }
             }
-        
+
             const originalBtnText = saveBtn.innerHTML;
-            saveBtn.innerHTML = 'Saving...';
+            saveBtn.innerHTML = 'Saving...'; // UI Feedback immediately
             saveBtn.disabled = true;
-        
+
+            // Use a small timeout to let the UI update (show "Saving...") before the heavy lifting starts
+            await new Promise(r => setTimeout(r, 50));
+
             try {
-                // --- SMART RESOLUTION EXPORT ---
-                const targetSize = 2500; 
+                // --- PERFORMANCE OPTIMIZATION ---
+                // 1. Reduced target size from 2500 to 1920 (Much faster on mobile)
+                const targetSize = 1920; 
                 const currentLongestSide = Math.max(fabricCanvas.width, fabricCanvas.height);
                 
                 let finalMultiplier = targetSize / currentLongestSide;
+
+                // Smart Multiplier: Ensure we don't upscale blurrily if original was small
+                // But generally keep it restricted to 1920px max for speed.
                 if (editorScaleFactor > 0) {
+                     // Don't go crazy huge if the editor was zoomed out
                      const originalResMultiplier = 1 / editorScaleFactor;
                      finalMultiplier = Math.min(finalMultiplier, originalResMultiplier);
                 }
-        
+
+                // 2. Switch to 'webp' (Smaller file size = Faster Firestore Upload)
                 const currentDataURL = fabricCanvas.toDataURL({ 
-                    format: 'jpeg', 
-                    quality: 0.8, 
+                    format: 'webp', 
+                    quality: 0.85, 
                     multiplier: finalMultiplier 
                 });
                 
@@ -3515,42 +3532,46 @@
                 }
                 
                 const totalPages = finalSaveList.length;
-                // --- NEW: Generate Group ID ---
-                const groupId = totalPages > 1 ? 'grp_' + Date.now() : null; 
                 const baseId = Math.random().toString(36).substr(2, 4).toUpperCase();
-        
+                
+                // Group Decision
+                let groupId = existingGroupId;
+                if (!groupId && totalPages > 1) {
+                    groupId = 'grp_' + Date.now();
+                }
+
                 // 3. SAVE LOOP
                 for (let i = 0; i < totalPages; i++) {
                     const dataUrl = finalSaveList[i];
-                    
-                    // Name logic: "Delivery Order (Page 1)"
                     let pageSuffix = totalPages > 1 ? ` (Page ${i + 1})` : "";
                     
                     let idToOverwrite = null;
+                    let currentIndex = i;
+
                     if (i === 0 && editingDocId) {
                         idToOverwrite = editingDocId;
+                        if (!isPdfBatch) currentIndex = existingPageIndex;
                     }
-        
-                    // --- CRITICAL UPDATE: Pass groupId and i (pageIndex) ---
+
                     await saveSingleDocument(
                         dataUrl, category, isSigned, baseId, pageSuffix, 
                         idToOverwrite, requiresSignature, 
-                        groupId, i 
+                        groupId, currentIndex 
                     );
                 }
-        
+
                 // Cleanup & Reset
                 isPdfBatch = false;
                 batchQueue = [];
                 const title = document.querySelector('#add-menu-modal h3');
                 if(title) title.textContent = 'Add Document';
-        
+
                 closeSaveModal(); 
                 cancelEdit(); 
                 editingDocId = null;
-        
-                if (totalPages > 1) alert(`✅ Saved ${totalPages} pages as a group.`);
-        
+
+                if (totalPages > 1) alert(`✅ Saved ${totalPages} pages.`);
+
             } catch (err) {
                 console.error("Save Error", err);
                 alert("Error saving document.");
@@ -4111,4 +4132,5 @@
     </script>
 </body>
 </html>
+
 
