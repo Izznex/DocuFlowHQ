@@ -3153,7 +3153,8 @@
             }
         }
 
-        async function saveSingleDocument(dataURL, category, isSigned, baseId, nameSuffix, overwriteId = null) {
+        async function saveSingleDocument(dataURL, category, isSigned, baseId, nameSuffix, overwriteId = null, requiresSignature = false) {
+            
             let finalDocId, finalDocName;
 
             // 1. DETERMINE ID & NAME
@@ -3656,6 +3657,7 @@
     </script>
 </body>
 </html>
+
 
 
 
