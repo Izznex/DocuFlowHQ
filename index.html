@@ -557,8 +557,12 @@
         </button>
     </div>
 
-    <div id="lightbox-container" class="flex-1 w-full h-full flex items-center justify-center overflow-hidden relative cursor-move">
-         <img id="lightbox-img" class="max-w-none origin-center transition-transform duration-75 will-change-transform" src="" style="transform: scale(1) translate(0px, 0px);">
+    <div id="lightbox-container" class="flex-1 w-full h-full flex items-center justify-center overflow-hidden relative cursor-move p-4">
+         <img id="lightbox-img" 
+              draggable="false"
+              class="max-w-full max-h-full object-contain transition-transform duration-75 will-change-transform select-none" 
+              src="" 
+              style="transform: scale(1) translate(0px, 0px);">
     </div>
 
     <div class="absolute bottom-24 flex items-center gap-4 bg-gray-900/90 backdrop-blur px-4 py-2 rounded-full border border-gray-700 z-30 shadow-2xl">
@@ -1602,6 +1606,7 @@
         
             // 2. Mouse Pan (PC)
             container.addEventListener('mousedown', (e) => {
+                e.preventDefault(); // <--- CRITICAL FIX: Stops browser from trying to "drag" the image file
                 lbState.panning = true;
                 lbState.startX = e.clientX - lbState.pointX;
                 lbState.startY = e.clientY - lbState.pointY;
@@ -1610,7 +1615,7 @@
         
             window.addEventListener('mousemove', (e) => {
                 if (!lbState.panning) return;
-                e.preventDefault();
+                e.preventDefault(); 
                 lbState.pointX = e.clientX - lbState.startX;
                 lbState.pointY = e.clientY - lbState.startY;
                 applyLightboxTransform();
@@ -1627,14 +1632,12 @@
         
             container.addEventListener('touchstart', (e) => {
                 if (e.touches.length === 2) {
-                    // Start Pinch
                     initialDist = Math.hypot(
                         e.touches[0].pageX - e.touches[1].pageX,
                         e.touches[0].pageY - e.touches[1].pageY
                     );
                     initialScale = lbState.scale;
                 } else if (e.touches.length === 1) {
-                    // Start Pan
                     lbState.panning = true;
                     lbState.startX = e.touches[0].clientX - lbState.pointX;
                     lbState.startY = e.touches[0].clientY - lbState.pointY;
@@ -1642,25 +1645,21 @@
             }, { passive: false });
         
             container.addEventListener('touchmove', (e) => {
-                e.preventDefault(); // Prevent page scrolling
+                e.preventDefault(); 
                 
                 if (e.touches.length === 2) {
-                    // Pinching
                     const dist = Math.hypot(
                         e.touches[0].pageX - e.touches[1].pageX,
                         e.touches[0].pageY - e.touches[1].pageY
                     );
                     const delta = dist - initialDist;
-                    // Sensitivity factor
                     const newScale = initialScale + (delta * 0.005); 
                     
-                    // Limit zoom
-                    lbState.scale = Math.min(Math.max(0.5, newScale), 5);
+                    lbState.scale = Math.min(Math.max(0.5, newScale), 20);
                     updateZoomDisplay();
                     applyLightboxTransform();
                 } 
                 else if (e.touches.length === 1 && lbState.panning) {
-                    // Panning
                     lbState.pointX = e.touches[0].clientX - lbState.startX;
                     lbState.pointY = e.touches[0].clientY - lbState.startY;
                     applyLightboxTransform();
@@ -1674,7 +1673,7 @@
 
         function updateLightboxZoom(delta) {
             lbState.scale += delta;
-            lbState.scale = Math.min(Math.max(0.5, lbState.scale), 5); // Min 0.5x, Max 5x
+            lbState.scale = Math.min(Math.max(0.5, lbState.scale), 20); // Min 0.5x, Max 5x
             updateZoomDisplay();
             applyLightboxTransform();
         }
@@ -3942,6 +3941,7 @@
     </script>
 </body>
 </html>
+
 
 
 
