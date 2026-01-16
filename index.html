@@ -2180,29 +2180,36 @@
                 }
                 return;
             }
-            // ---------------------------
         
             viewingDocId = docId; 
             document.body.style.cursor = 'wait';
         
             ensureDocImageLoaded(job, doc).then(imgSrc => {
                 document.body.style.cursor = 'default';
+                
                 if (imgSrc) {
                     const lightbox = document.getElementById('view-lightbox');
                     const img = document.getElementById('lightbox-img');
                     const editBtn = document.getElementById('lightbox-edit-btn');
                     const nameInput = document.getElementById('lightbox-filename');
                     
-                    // 1. SET SOURCE FIRST
+                    // 1. SHOW LIGHTBOX FIRST (Critical for Math)
+                    // We must unhide it BEFORE setting the src so the browser knows the screen size.
+                    lightbox.classList.remove('hidden');
+        
+                    // 2. SETUP IMAGE & CENTER LOGIC
+                    img.onload = () => {
+                        // Use requestAnimationFrame to ensure the 'hidden' class removal 
+                        // has been painted and dimensions are real.
+                        requestAnimationFrame(() => {
+                            resetLightboxZoom(); 
+                        });
+                    };
+                    
                     img.src = imgSrc;
                     nameInput.value = doc.name.replace(/\.[^/.]+$/, "");
-                    
-                    // 2. WAIT FOR LOAD TO CALCULATE CENTER
-                    img.onload = () => {
-                        resetLightboxZoom(); // <--- CRITICAL FIX: Run this AFTER image loads
-                    };
-
-                    // --- BUTTON LOGIC ---
+        
+                    // 3. BUTTON LOGIC
                     if (job.isArchived) {
                         editBtn.classList.add('hidden');
                         nameInput.disabled = true;
@@ -2216,9 +2223,7 @@
                         };
                     }
                     
-                    lightbox.classList.remove('hidden');
-        
-                    // 3. INITIALIZE GESTURES (ONCE)
+                    // 4. INITIALIZE GESTURES (ONCE)
                     if (!lightboxGesturesInit) {
                         initLightboxGestures();
                         lightboxGesturesInit = true;
@@ -4303,6 +4308,7 @@
     </script>
 </body>
 </html>
+
 
 
 
