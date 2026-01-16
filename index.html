@@ -1868,20 +1868,21 @@
                     const container = document.getElementById('lightbox-container');
                     const img = document.getElementById('lightbox-img');
                     
-                    // Reset to defaults
-                    lbState.scale = 1;
-                    lbState.panning = false;
-                    
-                    // Calculate Center
-                    if (container && img && img.naturalWidth) {
-                        // Fit logic: Shrink if image is larger than screen
+                    // Reset state
+                    lbState = { scale: 1, panning: false, pointX: 0, pointY: 0, startX: 0, startY: 0, isrAF: false };
+        
+                    if (container && img && img.naturalWidth > 0) {
+                        // 1. Calculate Scale to Fit
                         const scaleW = (container.clientWidth - 40) / img.naturalWidth;
                         const scaleH = (container.clientHeight - 40) / img.naturalHeight;
-                        const scale = Math.min(scaleW, scaleH, 1); // Never auto-zoom in, only out to fit
+                        // Use the smaller scale to fit whole image, but max out at 1 (don't stretch small images)
+                        const scale = Math.min(scaleW, scaleH, 1); 
                         
                         lbState.scale = scale;
                         
-                        // Center Math: (Container - (Image * Scale)) / 2
+                        // 2. Calculate Center Position
+                        // Formula: (Container_Size - (Image_Size * Scale)) / 2
+                        // This gives the exact Top/Left coordinates to center the image
                         lbState.pointX = (container.clientWidth - (img.naturalWidth * scale)) / 2;
                         lbState.pointY = (container.clientHeight - (img.naturalHeight * scale)) / 2;
                     } else {
@@ -1889,6 +1890,7 @@
                         lbState.pointY = 0;
                     }
                     
+                    // 3. Apply
                     requestUpdate();
                 }
                 
@@ -2180,36 +2182,35 @@
                 }
                 return;
             }
-        
+
             viewingDocId = docId; 
             document.body.style.cursor = 'wait';
         
             ensureDocImageLoaded(job, doc).then(imgSrc => {
                 document.body.style.cursor = 'default';
-                
                 if (imgSrc) {
                     const lightbox = document.getElementById('view-lightbox');
                     const img = document.getElementById('lightbox-img');
                     const editBtn = document.getElementById('lightbox-edit-btn');
                     const nameInput = document.getElementById('lightbox-filename');
                     
-                    // 1. SHOW LIGHTBOX FIRST (Critical for Math)
-                    // We must unhide it BEFORE setting the src so the browser knows the screen size.
+                    // 1. SHOW LIGHTBOX FIRST
+                    // We must remove 'hidden' BEFORE setting src so the container has dimensions
                     lightbox.classList.remove('hidden');
-        
-                    // 2. SETUP IMAGE & CENTER LOGIC
+
+                    // 2. DEFINE LOAD HANDLER
                     img.onload = () => {
-                        // Use requestAnimationFrame to ensure the 'hidden' class removal 
-                        // has been painted and dimensions are real.
+                        // Use requestAnimationFrame to ensure the DOM has painted the image size
                         requestAnimationFrame(() => {
                             resetLightboxZoom(); 
                         });
                     };
                     
+                    // 3. SET SOURCE (Triggers loading)
                     img.src = imgSrc;
                     nameInput.value = doc.name.replace(/\.[^/.]+$/, "");
-        
-                    // 3. BUTTON LOGIC
+                    
+                    // 4. BUTTON LOGIC
                     if (job.isArchived) {
                         editBtn.classList.add('hidden');
                         nameInput.disabled = true;
@@ -2222,8 +2223,8 @@
                             editExistingDoc(docId); 
                         };
                     }
-                    
-                    // 4. INITIALIZE GESTURES (ONCE)
+        
+                    // 5. INITIALIZE GESTURES (ONCE)
                     if (!lightboxGesturesInit) {
                         initLightboxGestures();
                         lightboxGesturesInit = true;
@@ -4308,6 +4309,7 @@
     </script>
 </body>
 </html>
+
 
 
 
