@@ -1865,29 +1865,35 @@
                 }
                 
                 function resetLightboxZoom() {
-                    const container = document.getElementById('lightbox-container');
-                    const img = document.getElementById('lightbox-img');
-                    
-                    // Reset state
-                    lbState = { scale: 1, panning: false, pointX: 0, pointY: 0, startX: 0, startY: 0, isrAF: false };
+                const container = document.getElementById('lightbox-container');
+                const img = document.getElementById('lightbox-img');
                 
-                    if (container && img && img.naturalWidth > 0) {
-                        // Force 100% Scale
-                        lbState.scale = 1; 
-                        
-                        // Calculate Center Position
-                        // If the image is larger than the screen, this will be a negative number (shifting it left/up)
-                        // If the image is smaller, this will be positive (shifting it right/down)
-                        // Both result in the image being perfectly centered.
-                        lbState.pointX = (container.clientWidth - img.naturalWidth) / 2;
-                        lbState.pointY = (container.clientHeight - img.naturalHeight) / 2;
-                    } else {
-                        lbState.pointX = 0;
-                        lbState.pointY = 0;
-                    }
+                // Reset state
+                lbState = { scale: 1, panning: false, pointX: 0, pointY: 0, startX: 0, startY: 0, isrAF: false };
+            
+                if (container && img && img.naturalWidth > 0) {
+                    // 1. Calculate ratios to fit width and height with some padding (40px)
+                    const scaleW = (container.clientWidth - 40) / img.naturalWidth;
+                    const scaleH = (container.clientHeight - 40) / img.naturalHeight;
                     
-                    requestUpdate();
+                    // 2. Choose the smaller scale so the entire image fits
+                    // We also cap it at 1.0 so tiny images don't get blurry (upscaled) automatically
+                    let scale = Math.min(scaleW, scaleH);
+                    scale = Math.min(scale, 1); 
+                    
+                    lbState.scale = scale;
+                    
+                    // 3. Calculate Center Position based on the NEW scale
+                    // Formula: (Container_Width - (Image_Width * Scale)) / 2
+                    lbState.pointX = (container.clientWidth - (img.naturalWidth * scale)) / 2;
+                    lbState.pointY = (container.clientHeight - (img.naturalHeight * scale)) / 2;
+                } else {
+                    lbState.pointX = 0;
+                    lbState.pointY = 0;
                 }
+                
+                requestUpdate();
+            }
                 
                 function applyLightboxTransform() {
                     const img = document.getElementById('lightbox-img');
@@ -4304,6 +4310,7 @@
     </script>
 </body>
 </html>
+
 
 
 
