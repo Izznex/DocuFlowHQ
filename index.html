@@ -40,6 +40,15 @@
             width: 20px; height: 20px; animation: spin 1s linear infinite;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+                /* GPU Acceleration for smooth zooming */
+        #lightbox-img, .canvas-container {
+            will-change: transform;
+            transform-origin: 0 0; /* Crucial for Matrix math */
+            backface-visibility: hidden;
+            perspective: 1000px;
+        }
+        
     </style>
 </head>
 <body class="bg-gray-900 text-white h-screen w-screen overflow-hidden font-sans antialiased selection:bg-emerald-500/30">
@@ -1709,105 +1718,153 @@
                 arrow.style.transform = "rotate(0deg)";
             }
         }
-        // --- LIGHTBOX ZOOM STATE ---
-        let lbState = { scale: 1, panning: false, pointX: 0, pointY: 0, startX: 0, startY: 0 };
+        // --- HIGH PERFORMANCE LIGHTBOX ENGINE ---
+        let lbState = { 
+            scale: 1, 
+            panning: false, 
+            pointX: 0, 
+            pointY: 0, 
+            startX: 0, 
+            startY: 0,
+            isrAF: false // Request Animation Frame lock
+        };
         
         function initLightboxGestures() {
-            const img = document.getElementById('lightbox-img');
             const container = document.getElementById('lightbox-container');
-            
-            // 1. Mouse Wheel Zoom (PC)
+            const img = document.getElementById('lightbox-img');
+        
+            // 1. Wheel Zoom (Desktop)
             container.addEventListener('wheel', (e) => {
                 e.preventDefault();
-                const delta = e.deltaY > 0 ? -0.1 : 0.1;
-                updateLightboxZoom(delta);
-            });
+                
+                const xs = (e.clientX - lbState.pointX) / lbState.scale;
+                const ys = (e.clientY - lbState.pointY) / lbState.scale;
+                
+                const delta = -e.deltaY;
+                const factor = delta > 0 ? 1.1 : 0.9;
+                
+                let newScale = lbState.scale * factor;
+                newScale = Math.min(Math.max(0.5, newScale), 10); // Min 0.5x, Max 10x
         
-            // 2. Mouse Pan (PC)
-            container.addEventListener('mousedown', (e) => {
-                e.preventDefault(); // <--- CRITICAL FIX: Stops browser from trying to "drag" the image file
+                // Calculate new position to zoom towards mouse pointer
+                lbState.pointX = e.clientX - xs * newScale;
+                lbState.pointY = e.clientY - ys * newScale;
+                lbState.scale = newScale;
+        
+                requestUpdate();
+            }, { passive: false });
+        
+            // 2. Pan Start (Desktop & Mobile)
+            const onStart = (clientX, clientY) => {
                 lbState.panning = true;
-                lbState.startX = e.clientX - lbState.pointX;
-                lbState.startY = e.clientY - lbState.pointY;
+                lbState.startX = clientX - lbState.pointX;
+                lbState.startY = clientY - lbState.pointY;
                 container.style.cursor = 'grabbing';
-            });
+            };
         
-            window.addEventListener('mousemove', (e) => {
-                if (!lbState.panning) return;
-                e.preventDefault(); 
-                lbState.pointX = e.clientX - lbState.startX;
-                lbState.pointY = e.clientY - lbState.startY;
-                applyLightboxTransform();
+            container.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                onStart(e.clientX, e.clientY);
             });
-        
-            window.addEventListener('mouseup', () => {
-                lbState.panning = false;
-                container.style.cursor = 'move';
-            });
-        
-            // 3. Touch Gestures (Mobile Pinch & Pan)
-            let initialDist = 0;
-            let initialScale = 1;
         
             container.addEventListener('touchstart', (e) => {
-                if (e.touches.length === 2) {
-                    initialDist = Math.hypot(
+                if (e.touches.length === 1) {
+                    onStart(e.touches[0].clientX, e.touches[0].clientY);
+                } else if (e.touches.length === 2) {
+                    // Pinch Start
+                    lbState.panning = false;
+                    lbState.startDist = Math.hypot(
                         e.touches[0].pageX - e.touches[1].pageX,
                         e.touches[0].pageY - e.touches[1].pageY
                     );
-                    initialScale = lbState.scale;
-                } else if (e.touches.length === 1) {
-                    lbState.panning = true;
-                    lbState.startX = e.touches[0].clientX - lbState.pointX;
-                    lbState.startY = e.touches[0].clientY - lbState.pointY;
+                    lbState.startScale = lbState.scale;
                 }
             }, { passive: false });
         
+            // 3. Pan/Zoom Move
+            const onMove = (clientX, clientY) => {
+                if (!lbState.panning) return;
+                lbState.pointX = clientX - lbState.startX;
+                lbState.pointY = clientY - lbState.startY;
+                requestUpdate();
+            };
+        
+            window.addEventListener('mousemove', (e) => {
+                if(lbState.panning) {
+                    e.preventDefault();
+                    onMove(e.clientX, e.clientY);
+                }
+            });
+        
             container.addEventListener('touchmove', (e) => {
-                e.preventDefault(); 
-                
-                if (e.touches.length === 2) {
+                e.preventDefault(); // Stop scrolling
+        
+                if (e.touches.length === 1) {
+                    onMove(e.touches[0].clientX, e.touches[0].clientY);
+                } 
+                else if (e.touches.length === 2) {
+                    // Pinch Move
                     const dist = Math.hypot(
                         e.touches[0].pageX - e.touches[1].pageX,
                         e.touches[0].pageY - e.touches[1].pageY
                     );
-                    const delta = dist - initialDist;
-                    const newScale = initialScale + (delta * 0.005); 
                     
-                    lbState.scale = Math.min(Math.max(0.5, newScale), 20);
-                    updateZoomDisplay();
-                    applyLightboxTransform();
-                } 
-                else if (e.touches.length === 1 && lbState.panning) {
-                    lbState.pointX = e.touches[0].clientX - lbState.startX;
-                    lbState.pointY = e.touches[0].clientY - lbState.startY;
-                    applyLightboxTransform();
+                    // Calculate scale based on distance change
+                    const scaleChange = dist / lbState.startDist;
+                    let newScale = lbState.startScale * scaleChange;
+                    
+                    // Limit Zoom
+                    lbState.scale = Math.min(Math.max(0.5, newScale), 10);
+                    
+                    // Note: Real "Pinch to center" requires complex math (midpoint calculation).
+                    // For simplicity/speed, we just scale. Panning corrects it easily.
+                    requestUpdate();
                 }
             }, { passive: false });
         
-            container.addEventListener('touchend', () => {
+            // 4. End
+            const onEnd = () => {
                 lbState.panning = false;
-            });
+                container.style.cursor = 'grab';
+            };
+            
+            window.addEventListener('mouseup', onEnd);
+            container.addEventListener('touchend', onEnd);
         }
-
+        
+        // --- OPTIMIZED RENDER LOOP ---
+        function requestUpdate() {
+            if (!lbState.isrAF) {
+                requestAnimationFrame(applyLightboxTransform);
+                lbState.isrAF = true;
+            }
+        }
         function updateLightboxZoom(delta) {
-            lbState.scale += delta;
-            lbState.scale = Math.min(Math.max(0.5, lbState.scale), 20); // Min 0.5x, Max 5x
-            updateZoomDisplay();
-            applyLightboxTransform();
+            // Button Helper
+            let newScale = lbState.scale + delta;
+            lbState.scale = Math.min(Math.max(0.5, newScale), 10);
+            requestUpdate();
         }
         
         function resetLightboxZoom() {
-            lbState = { scale: 1, panning: false, pointX: 0, pointY: 0, startX: 0, startY: 0 };
-            updateZoomDisplay();
-            applyLightboxTransform();
+            lbState = { scale: 1, panning: false, pointX: 0, pointY: 0, startX: 0, startY: 0, isrAF: false };
+            requestUpdate();
         }
         
         function applyLightboxTransform() {
             const img = document.getElementById('lightbox-img');
-            if(img) {
-                img.style.transform = `translate(${lbState.pointX}px, ${lbState.pointY}px) scale(${lbState.scale})`;
+            const display = document.getElementById('lightbox-zoom-display');
+            
+            if (img) {
+                // GPU Matrix Transform (The secret to performance)
+                img.style.transform = `translate3d(${lbState.pointX}px, ${lbState.pointY}px, 0) scale(${lbState.scale})`;
             }
+            
+            if (display) {
+                display.innerText = Math.round(lbState.scale * 100) + '%';
+            }
+            
+            lbState.isrAF = false; // Release lock
         }
         
         function updateZoomDisplay() {
@@ -1820,36 +1877,98 @@
         function initFabricZoom() {
             if (!fabricCanvas) return;
         
-            // 1. Mouse Wheel Zoom
+            // 1. Desktop: Mouse Wheel Zoom
             fabricCanvas.on('mouse:wheel', function(opt) {
                 var delta = opt.e.deltaY;
                 var zoom = fabricCanvas.getZoom();
                 zoom *= 0.999 ** delta;
                 if (zoom > 5) zoom = 5;
                 if (zoom < 0.5) zoom = 0.5;
-                
-                // Zoom to point of mouse
+        
                 fabricCanvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
+                
                 opt.e.preventDefault();
                 opt.e.stopPropagation();
+                
                 updateEditorZoomDisplay();
             });
         
-            // 2. Touch Pinch Zoom
-            // Fabric doesn't support pinch natively on all versions, so we use the canvas wrapper events
-            let initialPinchDist = 0;
-            let initialZoom = 1;
-            const canvasWrapper = document.querySelector('.canvas-container'); // Fabric wrapper
+            // 2. SMART PANNING (Desktop & Touch)
+            let isDragging = false;
+            let lastPosX = 0;
+            let lastPosY = 0;
         
+            fabricCanvas.on('mouse:down', function(opt) {
+                const evt = opt.e;
+                
+                // IF target exists -> We clicked an object. Enable selection.
+                if (opt.target) {
+                    this.isDragging = false; 
+                    this.selection = true; 
+                } 
+                // IF NO target -> We clicked background. Enable Panning.
+                else {
+                    this.isDragging = true;
+                    this.selection = false; // Disable blue selection box
+                    
+                    if(evt.touches) {
+                        this.lastPosX = evt.touches[0].clientX;
+                        this.lastPosY = evt.touches[0].clientY;
+                    } else {
+                        this.lastPosX = evt.clientX;
+                        this.lastPosY = evt.clientY;
+                    }
+                    fabricCanvas.defaultCursor = 'grabbing';
+                }
+            });
+        
+            fabricCanvas.on('mouse:move', function(opt) {
+                if (this.isDragging) {
+                    const evt = opt.e;
+                    let clientX, clientY;
+                    
+                    if(evt.touches) {
+                        clientX = evt.touches[0].clientX;
+                        clientY = evt.touches[0].clientY;
+                    } else {
+                        clientX = evt.clientX;
+                        clientY = evt.clientY;
+                    }
+        
+                    const vpt = this.viewportTransform;
+                    vpt[4] += clientX - this.lastPosX;
+                    vpt[5] += clientY - this.lastPosY;
+                    
+                    this.requestRenderAll();
+                    this.lastPosX = clientX;
+                    this.lastPosY = clientY;
+                }
+            });
+        
+            fabricCanvas.on('mouse:up', function(opt) {
+                if (this.isDragging) {
+                    this.setViewportTransform(this.viewportTransform);
+                    this.isDragging = false;
+                    this.selection = true; // Re-enable selection for next interaction
+                    fabricCanvas.defaultCursor = 'default';
+                }
+            });
+        
+            // 3. Native Pinch Zoom (High Performance)
+            const canvasWrapper = document.querySelector('.canvas-container'); 
+            
             if(canvasWrapper) {
+                let initialDist = 0;
+                let startZoom = 1;
+        
                 canvasWrapper.addEventListener('touchstart', (e) => {
                     if (e.touches.length === 2) {
-                        e.preventDefault();
-                        initialPinchDist = Math.hypot(
+                        e.preventDefault(); 
+                        initialDist = Math.hypot(
                             e.touches[0].pageX - e.touches[1].pageX,
                             e.touches[0].pageY - e.touches[1].pageY
                         );
-                        initialZoom = fabricCanvas.getZoom();
+                        startZoom = fabricCanvas.getZoom();
                     }
                 }, { passive: false });
         
@@ -1860,68 +1979,27 @@
                             e.touches[0].pageX - e.touches[1].pageX,
                             e.touches[0].pageY - e.touches[1].pageY
                         );
-                        const scaleFactor = dist / initialPinchDist;
-                        let newZoom = initialZoom * scaleFactor;
                         
-                        // Clamp
+                        const scaleChange = dist / initialDist;
+                        let newZoom = startZoom * scaleChange;
+                        
                         if (newZoom > 5) newZoom = 5;
                         if (newZoom < 0.5) newZoom = 0.5;
         
-                        // Zoom to center of the two fingers
+                        // Center zoom
                         const center = {
                             x: (e.touches[0].pageX + e.touches[1].pageX) / 2,
                             y: (e.touches[0].pageY + e.touches[1].pageY) / 2
                         };
-                        
-                        // Need to account for canvas offset on screen
-                        const rect = canvasWrapper.getBoundingClientRect();
-                        const localCenter = {
-                            x: center.x - rect.left,
-                            y: center.y - rect.top
-                        };
         
-                        fabricCanvas.zoomToPoint(localCenter, newZoom);
+                        const rect = canvasWrapper.getBoundingClientRect();
+                        const zoomPoint = new fabric.Point(center.x - rect.left, center.y - rect.top);
+        
+                        fabricCanvas.zoomToPoint(zoomPoint, newZoom);
                         updateEditorZoomDisplay();
                     }
                 }, { passive: false });
             }
-        
-            // 3. Panning Logic (Hold Shift + Drag OR Two fingers drag)
-            let isDragging = false;
-            let lastPosX, lastPosY;
-        
-            fabricCanvas.on('mouse:down', function(opt) {
-                var evt = opt.e;
-                // Allow pan if holding Shift Key (PC) or Alt Key
-                if (evt.shiftKey === true || evt.altKey === true) {
-                    this.isDragging = true;
-                    this.selection = false; // Disable selection while panning
-                    this.lastPosX = evt.clientX;
-                    this.lastPosY = evt.clientY;
-                }
-            });
-        
-            fabricCanvas.on('mouse:move', function(opt) {
-                if (this.isDragging) {
-                    var e = opt.e;
-                    var vpt = this.viewportTransform;
-                    vpt[4] += e.clientX - this.lastPosX;
-                    vpt[5] += e.clientY - this.lastPosY;
-                    this.requestRenderAll();
-                    this.lastPosX = e.clientX;
-                    this.lastPosY = e.clientY;
-                }
-            });
-        
-            fabricCanvas.on('mouse:up', function(opt) {
-                // on mouse up we want to recalculate new interaction
-                // for all objects, so we call setViewportTransform
-                if(this.isDragging) {
-                    this.setViewportTransform(this.viewportTransform);
-                    this.isDragging = false;
-                    this.selection = true;
-                }
-            });
         }
         
         function adjustEditorZoom(delta) {
@@ -4183,6 +4261,7 @@
     </script>
 </body>
 </html>
+
 
 
 
