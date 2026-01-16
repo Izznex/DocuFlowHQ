@@ -389,6 +389,13 @@
                 <span class="text-[10px] text-gray-400 font-medium">Crop</span>
             </button>
             
+            <button onclick="triggerEnhanceFromEditor()" class="flex flex-col items-center gap-1.5 group w-14">
+                <div class="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center group-active:scale-90 transition-all text-gray-300 group-hover:text-yellow-400 group-hover:border-yellow-500">
+                    <i data-lucide="wand-2" class="w-5 h-5"></i>
+                </div>
+                <span class="text-[10px] text-gray-400 font-medium">Enhance</span>
+            </button>
+            
             <button onclick="rotateDoc('right')" class="flex flex-col items-center gap-1.5 group w-14">
                 <div class="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center group-active:scale-90 transition-all text-gray-300 group-hover:text-white group-hover:border-gray-500"><i data-lucide="rotate-cw" class="w-5 h-5"></i></div>
                 <span class="text-[10px] text-gray-400 font-medium">Right</span>
@@ -2497,6 +2504,109 @@
             }, 400);
         }
 
+        async function triggerEnhanceFromEditor() {
+            if (!fabricCanvas || !fabricCanvas.backgroundImage) return;
+        
+            const btn = event.currentTarget;
+            const originalContent = btn.innerHTML;
+            btn.innerHTML = '<div class="loader w-4 h-4 border-t-yellow-400"></div>';
+            
+            // Allow UI to update
+            await new Promise(r => setTimeout(r, 50));
+        
+            try {
+                if (typeof cv === 'undefined' || !cv.Mat) throw new Error("OpenCV not ready.");
+        
+                const bgImage = fabricCanvas.backgroundImage;
+                const imgElement = bgImage._element; 
+        
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = imgElement.naturalWidth || imgElement.width;
+                tempCanvas.height = imgElement.naturalHeight || imgElement.height;
+                const ctx = tempCanvas.getContext('2d');
+                ctx.drawImage(imgElement, 0, 0);
+        
+                let src = cv.imread(tempCanvas);
+                let dst = new cv.Mat();
+                
+                // 1. Convert to YCrCb (Better than Lab for separating Luma)
+                let ycrcb = new cv.Mat();
+                cv.cvtColor(src, ycrcb, cv.COLOR_RGBA2YCrCb);
+                
+                let planes = new cv.MatVector();
+                cv.split(ycrcb, planes);
+                let Y = planes.get(0); // The Lightness Channel
+        
+                // 2. ILLUMINATION ESTIMATION (The "Scanner" Secret)
+                // We use a massive Morphological Close to ignore text and find the paper background
+                let kernelSize = Math.min(src.cols, src.rows) * 0.02; // Dynamic size (2% of image)
+                kernelSize = Math.floor(kernelSize) | 1; // Ensure odd number
+                let kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(kernelSize, kernelSize));
+                
+                let background = new cv.Mat();
+                cv.morphologyEx(Y, background, cv.MORPH_CLOSE, kernel);
+                
+                // 3. FLAT FIELD CORRECTION
+                // Result = (Original / Background) * 255
+                // This flattens the lighting, removing shadows completely
+                let resultPlane = new cv.Mat();
+                cv.divide(Y, background, resultPlane, 255.0); // Normalize
+                
+                // 4. SMART CONTRAST (CLAHE)
+                // Makes text pop without washing out colors
+                let clahe = new cv.createCLAHE(2.0, new cv.Size(8, 8));
+                clahe.apply(resultPlane, resultPlane);
+                
+                // 5. NORMALIZE & THRESHOLD "SOFTLY"
+                // We stretch the histogram to ensure the paper is truly white
+                cv.normalize(resultPlane, resultPlane, 0, 255, cv.NORM_MINMAX);
+        
+                // Merge back
+                planes.set(0, resultPlane);
+                cv.merge(planes, ycrcb);
+                
+                // Convert back to RGB
+                cv.cvtColor(ycrcb, dst, cv.COLOR_YCrCb2RGB);
+        
+                // 6. OPTIONAL: SUBTLE SHARPEN
+                // Scanner images are usually sharp. We apply a light unsharp mask.
+                let gaussian = new cv.Mat();
+                cv.GaussianBlur(dst, gaussian, new cv.Size(0, 0), 3);
+                cv.addWeighted(dst, 1.5, gaussian, -0.5, 0, dst);
+        
+                // Output
+                cv.imshow(tempCanvas, dst);
+                
+                const newUrl = tempCanvas.toDataURL('image/jpeg', 0.90);
+                
+                fabric.Image.fromURL(newUrl, function(newImg) {
+                    newImg.set({
+                        originX: 'center',
+                        originY: 'center',
+                        left: bgImage.left,
+                        top: bgImage.top,
+                        scaleX: bgImage.scaleX,
+                        scaleY: bgImage.scaleY,
+                        angle: bgImage.angle,
+                        selectable: false,
+                        evented: false
+                    });
+                    fabricCanvas.setBackgroundImage(newImg, fabricCanvas.renderAll.bind(fabricCanvas));
+                });
+        
+                // Cleanup
+                src.delete(); dst.delete(); ycrcb.delete(); planes.delete(); 
+                Y.delete(); kernel.delete(); background.delete(); 
+                resultPlane.delete(); clahe.delete(); gaussian.delete();
+        
+            } catch (err) {
+                console.error("Enhance error:", err);
+                alert("Enhance failed: " + err.message);
+            } finally {
+                btn.innerHTML = originalContent;
+            }
+        }
+        
         // --- SIMPLE SCANNER ENGINE ---
         let video = null;
         // isScanning is declared globally at the top
@@ -4342,6 +4452,7 @@
     </script>
 </body>
 </html>
+
 
 
 
