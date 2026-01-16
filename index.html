@@ -1870,27 +1870,22 @@
                     
                     // Reset state
                     lbState = { scale: 1, panning: false, pointX: 0, pointY: 0, startX: 0, startY: 0, isrAF: false };
-        
+                
                     if (container && img && img.naturalWidth > 0) {
-                        // 1. Calculate Scale to Fit
-                        const scaleW = (container.clientWidth - 40) / img.naturalWidth;
-                        const scaleH = (container.clientHeight - 40) / img.naturalHeight;
-                        // Use the smaller scale to fit whole image, but max out at 1 (don't stretch small images)
-                        const scale = Math.min(scaleW, scaleH, 1); 
+                        // --- CHANGED LOGIC: Force 100% ---
+                        lbState.scale = 1; 
                         
-                        lbState.scale = scale;
-                        
-                        // 2. Calculate Center Position
-                        // Formula: (Container_Size - (Image_Size * Scale)) / 2
-                        // This gives the exact Top/Left coordinates to center the image
-                        lbState.pointX = (container.clientWidth - (img.naturalWidth * scale)) / 2;
-                        lbState.pointY = (container.clientHeight - (img.naturalHeight * scale)) / 2;
+                        // Calculate Center Position for 100% Scale
+                        // Formula: (Container_Size - Image_Size) / 2
+                        // This centers the image regardless of how big or small it is
+                        lbState.pointX = (container.clientWidth - img.naturalWidth) / 2;
+                        lbState.pointY = (container.clientHeight - img.naturalHeight) / 2;
                     } else {
                         lbState.pointX = 0;
                         lbState.pointY = 0;
                     }
                     
-                    // 3. Apply
+                    // Apply
                     requestUpdate();
                 }
                 
@@ -4309,6 +4304,7 @@
     </script>
 </body>
 </html>
+
 
 
 
