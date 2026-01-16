@@ -583,10 +583,10 @@
         </button>
     </div>
 
-    <div id="lightbox-container" class="flex-1 w-full h-full flex items-center justify-center overflow-hidden relative cursor-move p-4">
+   <div id="lightbox-container" class="flex-1 w-full h-full flex items-center justify-center overflow-hidden relative cursor-move p-4">
          <img id="lightbox-img" 
               draggable="false"
-              class="max-w-full max-h-full object-contain transition-transform duration-75 will-change-transform select-none" 
+              class="transition-transform duration-75 will-change-transform select-none" 
               src="" 
               style="transform: scale(1) translate(0px, 0px);">
     </div>
@@ -1872,12 +1872,13 @@
                     lbState = { scale: 1, panning: false, pointX: 0, pointY: 0, startX: 0, startY: 0, isrAF: false };
                 
                     if (container && img && img.naturalWidth > 0) {
-                        // --- CHANGED LOGIC: Force 100% ---
+                        // Force 100% Scale
                         lbState.scale = 1; 
                         
-                        // Calculate Center Position for 100% Scale
-                        // Formula: (Container_Size - Image_Size) / 2
-                        // This centers the image regardless of how big or small it is
+                        // Calculate Center Position
+                        // If the image is larger than the screen, this will be a negative number (shifting it left/up)
+                        // If the image is smaller, this will be positive (shifting it right/down)
+                        // Both result in the image being perfectly centered.
                         lbState.pointX = (container.clientWidth - img.naturalWidth) / 2;
                         lbState.pointY = (container.clientHeight - img.naturalHeight) / 2;
                     } else {
@@ -1885,7 +1886,6 @@
                         lbState.pointY = 0;
                     }
                     
-                    // Apply
                     requestUpdate();
                 }
                 
@@ -4304,6 +4304,7 @@
     </script>
 </body>
 </html>
+
 
 
 
