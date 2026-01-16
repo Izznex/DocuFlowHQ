@@ -2506,26 +2506,26 @@
 
         async function triggerEnhanceFromEditor() {
             if (!fabricCanvas || !fabricCanvas.backgroundImage) return;
-
+        
             const btn = event.currentTarget;
             const originalContent = btn.innerHTML;
             btn.innerHTML = '<div class="loader w-4 h-4 border-t-yellow-400"></div>';
             
             // Allow UI to update
             await new Promise(r => setTimeout(r, 50));
-
+        
             try {
                 if (typeof cv === 'undefined' || !cv.Mat) throw new Error("OpenCV not ready.");
-
+        
                 const bgImage = fabricCanvas.backgroundImage;
                 const imgElement = bgImage._element; 
-
+        
                 const tempCanvas = document.createElement('canvas');
                 tempCanvas.width = imgElement.naturalWidth || imgElement.width;
                 tempCanvas.height = imgElement.naturalHeight || imgElement.height;
                 const ctx = tempCanvas.getContext('2d');
                 ctx.drawImage(imgElement, 0, 0);
-
+        
                 let src = cv.imread(tempCanvas);
                 let dst = new cv.Mat();
                 let rgb = new cv.Mat();
@@ -2539,7 +2539,7 @@
                 let planes = new cv.MatVector();
                 cv.split(ycrcb, planes);
                 let Y = planes.get(0); // The Lightness Channel
-
+        
                 // 2. ILLUMINATION ESTIMATION
                 // Use a massive Morphological Close to ignore text and find background
                 let kernelSize = Math.min(src.cols, src.rows) * 0.02; // 2% of image size
@@ -2554,24 +2554,25 @@
                 cv.divide(Y, background, resultPlane, 255.0); 
                 
                 // 4. SMART CONTRAST (CLAHE)
-                let clahe = new cv.createCLAHE(2.0, new cv.Size(8, 8));
+                // FIX: Removed 'new' keyword here
+                let clahe = cv.createCLAHE(2.0, new cv.Size(8, 8));
                 clahe.apply(resultPlane, resultPlane);
                 
                 // 5. NORMALIZE
                 cv.normalize(resultPlane, resultPlane, 0, 255, cv.NORM_MINMAX);
-
+        
                 // Merge back
                 planes.set(0, resultPlane);
                 cv.merge(planes, ycrcb);
                 
                 // Convert back to RGB
                 cv.cvtColor(ycrcb, dst, cv.COLOR_YCrCb2RGB);
-
+        
                 // 6. OPTIONAL: SUBTLE SHARPEN
                 let gaussian = new cv.Mat();
                 cv.GaussianBlur(dst, gaussian, new cv.Size(0, 0), 3);
                 cv.addWeighted(dst, 1.5, gaussian, -0.5, 0, dst);
-
+        
                 // Output
                 cv.imshow(tempCanvas, dst);
                 
@@ -2591,12 +2592,12 @@
                     });
                     fabricCanvas.setBackgroundImage(newImg, fabricCanvas.renderAll.bind(fabricCanvas));
                 });
-
+        
                 // Cleanup
                 src.delete(); dst.delete(); rgb.delete(); ycrcb.delete(); 
                 planes.delete(); Y.delete(); kernel.delete(); background.delete(); 
                 resultPlane.delete(); clahe.delete(); gaussian.delete();
-
+        
             } catch (err) {
                 console.error("Enhance error:", err);
                 alert("Enhance failed: " + err.message);
@@ -4450,6 +4451,7 @@
     </script>
 </body>
 </html>
+
 
 
 
