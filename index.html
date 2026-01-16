@@ -376,9 +376,17 @@
     <div id="editor-toolbar" class="bg-gray-900 border-t border-gray-700 pb-safe-area">
         <input type="file" id="stamp-input" accept="image/*" class="hidden" onchange="processStampUpload(this)">
         <div class="h-24 flex items-center justify-around px-4">
+            
             <button onclick="rotateDoc('left')" class="flex flex-col items-center gap-1.5 group w-14">
                 <div class="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center group-active:scale-90 transition-all text-gray-300 group-hover:text-white group-hover:border-gray-500"><i data-lucide="rotate-ccw" class="w-5 h-5"></i></div>
                 <span class="text-[10px] text-gray-400 font-medium">Left</span>
+            </button>
+            
+            <button onclick="triggerCropFromEditor()" class="flex flex-col items-center gap-1.5 group w-14">
+                <div class="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center group-active:scale-90 transition-all text-gray-300 group-hover:text-emerald-400 group-hover:border-emerald-500">
+                    <i data-lucide="crop" class="w-5 h-5"></i>
+                </div>
+                <span class="text-[10px] text-gray-400 font-medium">Crop</span>
             </button>
             
             <button onclick="rotateDoc('right')" class="flex flex-col items-center gap-1.5 group w-14">
@@ -2656,20 +2664,17 @@
             
             // --- SMART RETAKE LOGIC ---
             if (isStampMode) {
-                // We are cancelling a stamp crop. Where should we go?
-                
+                // ... (Existing Stamp Logic) ...
                 if (captureSource === 'camera') {
-                    openScanner(); // Re-open camera immediately
+                    openScanner(); 
                 } else if (captureSource === 'upload') {
-                    // Re-open file picker, but first show editor so we don't stare at a blank screen
                     document.getElementById('view-editor').classList.remove('hidden');
                     setTimeout(() => triggerStampInput(), 100);
                 } else {
-                    // For 'paste', just go back to editor and open the menu
                     document.getElementById('view-editor').classList.remove('hidden');
                     setTimeout(() => {
                         const menu = document.getElementById('stamp-options-menu');
-                        menu.classList.remove('hidden'); // Re-show the menu
+                        menu.classList.remove('hidden'); 
                     }, 100);
                 }
             } else {
@@ -2678,13 +2683,15 @@
                     document.getElementById('doc-upload-input').click();
                 } else if (captureSource === 'paste') {
                     openAddMenu(); 
+                } else if (captureSource === 'editor') {
+                    // NEW: Return to Editor (Cancel Crop)
+                    document.getElementById('view-editor').classList.remove('hidden');
                 } else {
                     openScanner(); 
                 }
             }
             
-            // Important: Don't reset isStampMode yet if we are looping back to camera!
-            // But if we are going back to the menu/editor (cancel), we should reset it.
+            // Clean up flags
             if (captureSource === 'paste' || captureSource === 'upload') {
                 isStampMode = false; 
             }
@@ -3568,6 +3575,31 @@
             img.set({ left: fabricCanvas.width / 2, top: fabricCanvas.height / 2, scaleX: scale, scaleY: scale });
             img.setCoords(); fabricCanvas.renderAll();
         }
+
+        function triggerCropFromEditor() {
+            if (!fabricCanvas) return;
+            
+            // 1. Capture current state (including any rotations you made)
+            // We use a multiplier to keep the image sharp for the cropping step
+            const dataUrl = fabricCanvas.toDataURL({ 
+                format: 'png', 
+                quality: 1.0,
+                multiplier: 2 
+            });
+        
+            // 2. Set State
+            captureSource = 'editor'; // <--- Important: Tells the app "We came from the Editor"
+            isStampMode = false;      // Ensure we get the Document crop box, not the Stamp box
+        
+            // 3. Switch Views
+            document.getElementById('view-editor').classList.add('hidden');
+            
+            // Hide the stamp slider if it was open
+            const slider = document.getElementById('stamp-slider-container');
+            if (slider) slider.classList.add('hidden');
+        
+            openCropView(dataUrl, null);
+        }
         
         function openAddMenu() { document.getElementById('add-menu-modal').classList.remove('hidden'); document.getElementById('add-menu-modal').classList.add('flex'); }
         function closeAddMenu() { document.getElementById('add-menu-modal').classList.add('hidden'); document.getElementById('add-menu-modal').classList.remove('flex'); }
@@ -4310,6 +4342,7 @@
     </script>
 </body>
 </html>
+
 
 
 
