@@ -2511,7 +2511,6 @@
             const originalContent = btn.innerHTML;
             btn.innerHTML = '<div class="loader w-4 h-4 border-t-yellow-400"></div>';
             
-            // Allow UI to update
             await new Promise(r => setTimeout(r, 50));
         
             try {
@@ -2520,6 +2519,7 @@
                 const bgImage = fabricCanvas.backgroundImage;
                 const imgElement = bgImage._element; 
         
+                // 1. Get Image Data
                 const tempCanvas = document.createElement('canvas');
                 tempCanvas.width = imgElement.naturalWidth || imgElement.width;
                 tempCanvas.height = imgElement.naturalHeight || imgElement.height;
@@ -2528,19 +2528,19 @@
         
                 let src = cv.imread(tempCanvas);
                 let dst = new cv.Mat();
-                let rgb = new cv.Mat();
                 let ycrcb = new cv.Mat();
                 
-                // 1. Convert to YCrCb (Strip Alpha first)
-                cv.cvtColor(src, rgb, cv.COLOR_RGBA2RGB);
-                cv.cvtColor(rgb, ycrcb, cv.COLOR_RGB2YCrCb);
+                // 2. Convert to YCrCb (Working in Luma channel)
+                cv.cvtColor(src, src, cv.COLOR_RGBA2RGB); // Strip Alpha
+                cv.cvtColor(src, ycrcb, cv.COLOR_RGB2YCrCb);
                 
                 let planes = new cv.MatVector();
                 cv.split(ycrcb, planes);
-                let Y = planes.get(0); // The Lightness Channel
+                let Y = planes.get(0);
         
-                // 2. ILLUMINATION ESTIMATION (Morphological Close)
-                // This finds the background paper color, ignoring text
+                // 3. SHADOW REMOVAL (HIGH PRECISION FLOAT MATH)
+                // We calculate background using morphology, but do the math in Float32
+                // to prevent data loss.
                 let kernelSize = Math.min(src.cols, src.rows) * 0.02;
                 kernelSize = Math.floor(kernelSize) | 1;
                 let kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(kernelSize, kernelSize));
@@ -2548,50 +2548,34 @@
                 let background = new cv.Mat();
                 cv.morphologyEx(Y, background, cv.MORPH_CLOSE, kernel);
                 
-                // 3. FLAT FIELD CORRECTION (The "Scanner" Magic)
-                // Divide original by background to remove shadows
-                let resultPlane = new cv.Mat();
-                cv.divide(Y, background, resultPlane, 255.0); 
+                // Convert to Float (Critical Step for "Did Nothing" fix)
+                let Y_f = new cv.Mat(); Y.convertTo(Y_f, cv.CV_32F);
+                let bg_f = new cv.Mat(); background.convertTo(bg_f, cv.CV_32F);
+                let result_f = new cv.Mat();
                 
-                // 4. SMART CONTRAST (Robust Fallback)
-                // If createCLAHE exists, use it. If not, use MinMax Normalization.
-                if (cv.createCLAHE) {
-                    try {
-                        let clahe = new cv.createCLAHE(2.0, new cv.Size(8, 8));
-                        clahe.apply(resultPlane, resultPlane);
-                        clahe.delete();
-                    } catch (e) {
-                        // If 'new' fails, try without 'new'
-                        try {
-                            let clahe = cv.createCLAHE(2.0, new cv.Size(8, 8));
-                            clahe.apply(resultPlane, resultPlane);
-                            clahe.delete();
-                        } catch(e2) {
-                            console.warn("CLAHE unavailable, using standard normalization");
-                            cv.normalize(resultPlane, resultPlane, 0, 255, cv.NORM_MINMAX);
-                        }
-                    }
-                } else {
-                    // Standard "Scanner" Contrast Stretch (Reliable)
-                    // This pulls the darkest ink to 0 (Black) and paper to 255 (White)
-                    cv.normalize(resultPlane, resultPlane, 0, 255, cv.NORM_MINMAX);
-                }
+                // Flat Field Correction: (Pixel / Background) * 255
+                cv.divide(Y_f, bg_f, result_f, 255.0);
+                
+                // Convert back to 8-bit
+                let resultPlane = new cv.Mat();
+                result_f.convertTo(resultPlane, cv.CV_8U);
         
-                // Merge back
+                // 4. AGGRESSIVE CONTRAST BOOST (The "Scanner" Pop)
+                // Alpha 1.5 = 50% more contrast. Beta -20 = Darken blacks slightly.
+                cv.convertScaleAbs(resultPlane, resultPlane, 1.5, -20);
+        
+                // 5. Reassemble
                 planes.set(0, resultPlane);
                 cv.merge(planes, ycrcb);
-                
-                // Convert back to RGB
                 cv.cvtColor(ycrcb, dst, cv.COLOR_YCrCb2RGB);
         
-                // 5. SUBTLE SHARPEN (Unsharp Mask)
+                // 6. SHARPEN (Unsharp Mask)
                 let gaussian = new cv.Mat();
                 cv.GaussianBlur(dst, gaussian, new cv.Size(0, 0), 3);
                 cv.addWeighted(dst, 1.5, gaussian, -0.5, 0, dst);
         
                 // Output
                 cv.imshow(tempCanvas, dst);
-                
                 const newUrl = tempCanvas.toDataURL('image/jpeg', 0.90);
                 
                 fabric.Image.fromURL(newUrl, function(newImg) {
@@ -2609,10 +2593,10 @@
                     fabricCanvas.setBackgroundImage(newImg, fabricCanvas.renderAll.bind(fabricCanvas));
                 });
         
-                // Cleanup
-                src.delete(); dst.delete(); rgb.delete(); ycrcb.delete(); 
-                planes.delete(); Y.delete(); kernel.delete(); background.delete(); 
-                resultPlane.delete(); gaussian.delete();
+                // Garbage Collection (Crucial in JS OpenCV)
+                src.delete(); dst.delete(); ycrcb.delete(); planes.delete(); Y.delete(); 
+                kernel.delete(); background.delete(); Y_f.delete(); bg_f.delete(); 
+                result_f.delete(); resultPlane.delete(); gaussian.delete();
         
             } catch (err) {
                 console.error("Enhance error:", err);
@@ -4467,6 +4451,7 @@
     </script>
 </body>
 </html>
+
 
 
 
