@@ -45,12 +45,16 @@
         /* Update the transform-origin to 0 0 */
         #lightbox-img {
             will-change: transform;
-            transform-origin: 0 0; /* Crucial: This anchors the math to the top-left */
+            transform-origin: 0 0; 
             backface-visibility: hidden;
             perspective: 1000px;
-            position: absolute; /* Ensures the transform is the only thing moving it */
+            position: absolute; 
             top: 0;
             left: 0;
+            
+            /* --- THE FIX --- */
+            max-width: none !important;
+            max-height: none !important;
         }
         
     </style>
@@ -4479,6 +4483,7 @@
     </script>
 </body>
 </html>
+
 
 
 
