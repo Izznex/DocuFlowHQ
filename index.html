@@ -1880,35 +1880,63 @@
                 }
                 
                 function resetLightboxZoom() {
-                const container = document.getElementById('lightbox-container');
-                const img = document.getElementById('lightbox-img');
+                    const container = document.getElementById('lightbox-container');
+                    const img = document.getElementById('lightbox-img');
+                    
+                    // Reset state
+                    lbState = { scale: 1, panning: false, pointX: 0, pointY: 0, startX: 0, startY: 0, isrAF: false };
                 
-                // Reset state
-                lbState = { scale: 1, panning: false, pointX: 0, pointY: 0, startX: 0, startY: 0, isrAF: false };
-            
-                if (container && img && img.naturalWidth > 0) {
-                    // 1. Calculate ratios to fit width and height with some padding (40px)
-                    const scaleW = (container.clientWidth - 40) / img.naturalWidth;
-                    const scaleH = (container.clientHeight - 40) / img.naturalHeight;
-                    
-                    // 2. Choose the smaller scale so the entire image fits
-                    // We also cap it at 1.0 so tiny images don't get blurry (upscaled) automatically
-                    let scale = Math.min(scaleW, scaleH);
-                    scale = Math.min(scale, 1); 
-                    
-                    lbState.scale = scale;
-                    
-                    // 3. Calculate Center Position based on the NEW scale
-                    // Formula: (Container_Width - (Image_Width * Scale)) / 2
-                    lbState.pointX = (container.clientWidth - (img.naturalWidth * scale)) / 2;
-                    lbState.pointY = (container.clientHeight - (img.naturalHeight * scale)) / 2;
-                } else {
-                    lbState.pointX = 0;
-                    lbState.pointY = 0;
-                }
+                    if (container && img && img.naturalWidth > 0) {
+                        const cw = container.clientWidth;
+                        const ch = container.clientHeight;
+                        const iw = img.naturalWidth;
+                        const ih = img.naturalHeight;
+                        
+                        // --- SMART FIT LOGIC ---
+                        const isMobile = cw < 768; // Standard tablet/mobile breakpoint
+                        const padding = isMobile ? 0 : 40; // No padding on mobile for max readability
                 
-                requestUpdate();
-            }
+                        const scaleW = (cw - padding) / iw;
+                        const scaleH = (ch - padding) / ih;
+                
+                        let scale;
+                        
+                        if (isMobile) {
+                            // MOBILE: Default to "Fit Width" so text is readable
+                            // But cap it so we don't over-zoom square images
+                            scale = scaleW; 
+                        } else {
+                            // DESKTOP: Default to "Fit Whole Page" (Best Fit)
+                            scale = Math.min(scaleW, scaleH);
+                        }
+                        
+                        // Prevent upscaling tiny images (optional, usually good to keep)
+                        // scale = Math.min(scale, 1); 
+                
+                        lbState.scale = scale;
+                        
+                        // --- ALIGNMENT LOGIC ---
+                        // 1. Center Horizontally
+                        lbState.pointX = (cw - (iw * scale)) / 2;
+                
+                        // 2. Vertical Alignment
+                        const scaledHeight = ih * scale;
+                        
+                        if (scaledHeight > ch) {
+                            // If image is taller than screen (Mobile scroll mode), align to TOP
+                            // We give it a tiny top margin (e.g., 10px) so it doesn't touch the bezel
+                            lbState.pointY = isMobile ? 10 : 0; 
+                        } else {
+                            // If image fits fully (Desktop mode), align to CENTER
+                            lbState.pointY = (ch - scaledHeight) / 2;
+                        }
+                    } else {
+                        lbState.pointX = 0;
+                        lbState.pointY = 0;
+                    }
+                    
+                    requestUpdate();
+                }}
                 
                 function applyLightboxTransform() {
                     const img = document.getElementById('lightbox-img');
@@ -4451,6 +4479,7 @@
     </script>
 </body>
 </html>
+
 
 
 
