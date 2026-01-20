@@ -3965,29 +3965,36 @@
         }
         
         function cancelEdit() {
-            // Hide the Editor View
+            // 1. Hide the Editor View
             document.getElementById('view-editor').classList.add('hidden');
             
-            // --- FIX: Force Hide Stamp Settings ---
+            // 2. Force Hide Stamp Settings (Cleanup)
             const slider = document.getElementById('stamp-slider-container');
             if (slider) {
                 slider.classList.add('hidden');
-                // Reset position to default (bottom) so it doesn't get stuck at the top
                 slider.classList.remove('top-24');
                 slider.classList.add('bottom-36');
             }
-
-            // Cleanup Canvas
+        
+            // 3. Cleanup Canvas
             if (fabricCanvas) {
                 try { fabricCanvas.dispose(); } catch (e) {}
                 fabricCanvas = null;
             }
-
-            // Reset File Inputs (so you can upload the same file again if needed)
+        
+            // 4. Reset File Inputs
             document.getElementById('doc-upload-input').value = '';
             document.getElementById('stamp-input').value = '';
             
-            // Reset Flags
+            // --- THE FIX: Restore Document List View ---
+            // If we are "inside" a job (have an ID), make sure the details view is visible.
+            // This prevents falling back to the main dashboard.
+            if (currentJobId) {
+                document.getElementById('view-job-details').classList.remove('hidden');
+            }
+            // -------------------------------------------
+        
+            // 5. Reset Flags
             editingDocId = null;
             isStampMode = false;
         }
@@ -4875,6 +4882,7 @@
     </script>
 </body>
 </html>
+
 
 
 
