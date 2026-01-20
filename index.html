@@ -928,11 +928,14 @@
         async function applySavedStampToCanvas() {
             if (!fabricCanvas || !userStampConfig) return;
         
-            // 1. Prepare Date
             const dateObj = new Date();
-            const dateStr = dateObj.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+            // 1. Capitalize for the final stamp
+            const dateStr = dateObj.toLocaleDateString('en-GB', { 
+                day: '2-digit', 
+                month: 'short', 
+                year: 'numeric' 
+            }).toUpperCase(); 
         
-            // 2. Separate Items by Type (To enforce Layer Order: Stamp -> Date -> Signature)
             const stamps = [];
             const signatures = [];
             const dates = [];
@@ -940,18 +943,14 @@
             userStampConfig.forEach(item => {
                 if (item.type === 'date') dates.push(item);
                 else if (item.type === 'sig') signatures.push(item);
-                else stamps.push(item); // Default everything else (chop) to stamp layer
+                else stamps.push(item);
             });
         
             const groupObjects = [];
         
-            // --- HELPER: Process Image Item ---
             const processImageItem = async (item) => {
                 if (!item.src) return null;
-                
-                // Auto-remove background on the fly
                 const cleanSrc = await autoRemoveBackground(item.src);
-                
                 return new Promise(resolve => {
                     fabric.Image.fromURL(cleanSrc, function(img) {
                         img.set({
@@ -968,18 +967,18 @@
                 });
             };
         
-            // --- LAYER 1: STAMPS (Bottom) ---
+            // Layer 1: Stamps
             for (const item of stamps) {
                 const imgObj = await processImageItem(item);
                 if(imgObj) groupObjects.push(imgObj);
             }
         
-            // --- LAYER 2: DATES (Middle) ---
+            // Layer 2: Dates (RED and CAPS)
             for (const item of dates) {
                 const text = new fabric.Text(dateStr, {
                     fontSize: 18, 
                     fontFamily: 'Courier New',
-                    fill: 'blue', 
+                    fill: '#FF0000', // 2. Red here
                     left: item.left,
                     top: item.top,
                     originX: 'center',
@@ -992,13 +991,12 @@
                 groupObjects.push(text);
             }
         
-            // --- LAYER 3: SIGNATURES (Top) ---
+            // Layer 3: Signatures
             for (const item of signatures) {
                 const imgObj = await processImageItem(item);
                 if(imgObj) groupObjects.push(imgObj);
             }
         
-            // 3. Create Group & Scale
             if (groupObjects.length > 0) {
                 const group = new fabric.Group(groupObjects, {
                     left: fabricCanvas.width / 2,
@@ -1010,7 +1008,6 @@
                     transparentCorners: false
                 });
         
-                // Set stamp to be 25% of the document width
                 const targetWidth = fabricCanvas.width * 0.25; 
                 group.scaleToWidth(targetWidth);
         
@@ -1019,7 +1016,7 @@
                 fabricCanvas.renderAll();
             }
         }
-        
+                
         // Helper needed for the function above
         function autoRemoveBackground(imageSrc) {
             return new Promise((resolve) => {
@@ -1109,28 +1106,27 @@
         }
         
         function addDateToDesigner() {
-            // Remove existing date if any (only 1 allowed)
+            // Remove existing date if any
             const objects = designerCanvas.getObjects();
             objects.forEach(o => { if (o.myType === 'date') designerCanvas.remove(o); });
         
-            // Generate Real Date String
             const dateObj = new Date();
+            // 1. Get Date String and Capitalize it (JAN)
             const dateStr = dateObj.toLocaleDateString('en-GB', { 
                 day: '2-digit', 
                 month: 'short', 
                 year: 'numeric' 
-            }); // Output: "20 Jan 2026"
+            }).toUpperCase(); // "20 JAN 2026"
         
             const text = new fabric.Text(dateStr, {
-                fontSize: 24, // Slightly larger for visibility
+                fontSize: 24,
                 fontFamily: 'Courier New',
-                fill: '#00008B', // Dark Blue Ink
+                fill: '#FF0000', // 2. Set Color to RED
                 left: designerCanvas.width / 2,
                 top: designerCanvas.height / 2 + 40,
                 originX: 'center',
                 originY: 'center',
                 
-                // Critical Tags
                 myType: 'date',
                 data: { type: 'date' },
                 
@@ -1206,12 +1202,21 @@
         }
         
         function loadConfigToCanvas(config) {
+            // 1. Calculate the REAL date right now
+            const dateObj = new Date();
+            const dateStr = dateObj.toLocaleDateString('en-GB', { 
+                day: '2-digit', 
+                month: 'short', 
+                year: 'numeric' 
+            }).toUpperCase(); // Result: "20 JAN 2026"
+        
             config.forEach(item => {
+                // 2. If the saved item is a 'date', ignore old text and use the NEW dateStr
                 if (item.type === 'date') {
-                    const text = new fabric.Text('{TODAY}', {
-                        fontSize: 18,
+                    const text = new fabric.Text(dateStr, { 
+                        fontSize: 24,
                         fontFamily: 'Courier New',
-                        fill: '#10b981',
+                        fill: '#FF0000', // Red
                         left: item.left,
                         top: item.top,
                         originX: 'center',
@@ -1219,11 +1224,16 @@
                         angle: item.angle,
                         scaleX: item.scaleX,
                         scaleY: item.scaleY,
+                        
                         myType: 'date',
+                        data: { type: 'date' },
+                        
                         fontWeight: 'bold'
                     });
                     designerCanvas.add(text);
-                } else if (item.src) {
+                } 
+                else if (item.src) {
+                    // Load images (Signature/Stamp)
                     fabric.Image.fromURL(item.src, function(img) {
                         img.set({
                             left: item.left,
@@ -1233,14 +1243,16 @@
                             angle: item.angle,
                             scaleX: item.scaleX,
                             scaleY: item.scaleY,
-                            myType: item.type
+                            
+                            myType: item.type,
+                            data: { type: item.type }
                         });
                         designerCanvas.add(img);
                     });
                 }
             });
         }
-                
+                        
         // --- TEAM MANAGEMENT LOGIC ---
 
         function switchTeamTab(tab) {
@@ -4863,6 +4875,7 @@
     </script>
 </body>
 </html>
+
 
 
 
