@@ -649,9 +649,9 @@
         
         <p class="text-xs text-gray-400">Arrange your Signature, Stamp, and Date. This layout will be used automatically.</p>
 
-        <div class="relative bg-white/5 rounded-xl overflow-hidden border border-gray-600 flex justify-center items-center h-48 bg-[radial-gradient(#374151_1px,transparent_1px)] [background-size:8px_8px]">
+        <div class="relative bg-white rounded-xl overflow-hidden border-2 border-gray-300 flex justify-center items-center h-48 shadow-inner">
             <canvas id="designer-canvas" width="350" height="180"></canvas>
-            <div class="absolute top-2 right-2 text-[10px] text-gray-500 font-mono">Preview</div>
+            <div class="absolute top-2 right-2 text-[10px] text-gray-400 font-bold font-mono opacity-50">PREVIEW</div>
         </div>
 
         <div class="grid grid-cols-3 gap-2">
@@ -926,34 +926,30 @@
         
         // THE COMPOSITOR
         async function applySavedStampToCanvas() {
-            if (!fabricCanvas) return;
-            if (!userStampConfig) return;
+            if (!fabricCanvas || !userStampConfig) return;
         
             // 1. Prepare Date
             const dateObj = new Date();
             const dateStr = dateObj.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
         
-            // 2. Separate Items by Type (To enforce Layer Order)
+            // 2. Separate Items by Type (To enforce Layer Order: Stamp -> Date -> Signature)
             const stamps = [];
             const signatures = [];
             const dates = [];
         
-            // Sort config items into buckets
             userStampConfig.forEach(item => {
                 if (item.type === 'date') dates.push(item);
-                // Identify signatures vs stamps based on type or context
-                // Assuming 'image' is stamp, unless explicitly 'sig'. 
-                // If your designer doesn't differentiate, we treat standard images as Stamps (Bottom)
-                // and add logic to put them below text.
-                else if (item.myType === 'sig' || item.type === 'sig') signatures.push(item);
-                else stamps.push(item);
+                else if (item.type === 'sig') signatures.push(item);
+                else stamps.push(item); // Default everything else (chop) to stamp layer
             });
         
             const groupObjects = [];
         
             // --- HELPER: Process Image Item ---
             const processImageItem = async (item) => {
-                // A. Remove Background
+                if (!item.src) return null;
+                
+                // Auto-remove background on the fly
                 const cleanSrc = await autoRemoveBackground(item.src);
                 
                 return new Promise(resolve => {
@@ -975,15 +971,13 @@
             // --- LAYER 1: STAMPS (Bottom) ---
             for (const item of stamps) {
                 const imgObj = await processImageItem(item);
-                groupObjects.push(imgObj);
+                if(imgObj) groupObjects.push(imgObj);
             }
         
-            // --- LAYER 2: DATES (Middle - On top of Stamp) ---
-            // Fix "Date too big": We enforce a relative font size later, 
-            // but here we ensure it sits logically on top.
+            // --- LAYER 2: DATES (Middle) ---
             for (const item of dates) {
                 const text = new fabric.Text(dateStr, {
-                    fontSize: 24, // Base size, will be scaled by group
+                    fontSize: 18, 
                     fontFamily: 'Courier New',
                     fill: 'blue', 
                     left: item.left,
@@ -998,13 +992,13 @@
                 groupObjects.push(text);
             }
         
-            // --- LAYER 3: SIGNATURES (Top - On top of Everything) ---
+            // --- LAYER 3: SIGNATURES (Top) ---
             for (const item of signatures) {
                 const imgObj = await processImageItem(item);
-                groupObjects.push(imgObj);
+                if(imgObj) groupObjects.push(imgObj);
             }
         
-            // 3. Create Group
+            // 3. Create Group & Scale
             if (groupObjects.length > 0) {
                 const group = new fabric.Group(groupObjects, {
                     left: fabricCanvas.width / 2,
@@ -1016,9 +1010,7 @@
                     transparentCorners: false
                 });
         
-                // --- SCALING LOGIC (The Fix for "Too Small") ---
-                // We want the stamp to occupy roughly 25% of the document width.
-                // This makes it responsive whether the doc is 500px or 4000px wide.
+                // Set stamp to be 25% of the document width
                 const targetWidth = fabricCanvas.width * 0.25; 
                 group.scaleToWidth(targetWidth);
         
@@ -1027,39 +1019,31 @@
                 fabricCanvas.renderAll();
             }
         }
-
-        // HELPER: Auto-remove white background from a Data URL or Image Source
+        
+        // Helper needed for the function above
         function autoRemoveBackground(imageSrc) {
             return new Promise((resolve) => {
                 const img = new Image();
                 img.crossOrigin = "Anonymous";
                 img.src = imageSrc;
-                
                 img.onload = () => {
                     const canvas = document.createElement('canvas');
                     canvas.width = img.width;
                     canvas.height = img.height;
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0);
-                    
                     const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                     const data = imgData.data;
-                    
-                    // Loop through pixels: If R, G, and B are > 180 (Light/White), make Alpha 0
                     for (let i = 0; i < data.length; i += 4) {
-                        const r = data[i];
-                        const g = data[i + 1];
-                        const b = data[i + 2];
-                        // Threshold: 180 out of 255
-                        if (r > 180 && g > 180 && b > 180) {
+                        // If pixel is white/light-grey, make transparent
+                        if (data[i] > 180 && data[i + 1] > 180 && data[i + 2] > 180) {
                             data[i + 3] = 0; 
                         }
                     }
-                    
                     ctx.putImageData(imgData, 0, 0);
                     resolve(canvas.toDataURL());
                 };
-                img.onerror = () => resolve(imageSrc); // Fallback if error
+                img.onerror = () => resolve(imageSrc);
             });
         }
         
@@ -1090,21 +1074,33 @@
         function handleDesignUpload(input, type) {
             if (input.files && input.files[0]) {
                 const reader = new FileReader();
-                reader.onload = function(e) {
-                    fabric.Image.fromURL(e.target.result, function(img) {
-                        // Resize to fit reasonable bounds
-                        if (img.width > 150) img.scaleToWidth(150);
+                
+                // Note the 'async' here - we need it to wait for the cleaner
+                reader.onload = async function(e) {
+                    
+                    // 1. Clean the background IMMEDIATELY
+                    // This ensures what lands on the designer canvas is already transparent
+                    const cleanSrc = await autoRemoveBackground(e.target.result);
+        
+                    // 2. Load the CLEAN image into Fabric
+                    fabric.Image.fromURL(cleanSrc, function(img) {
+                        // Resize if huge
+                        if (img.width > 200) img.scaleToWidth(200);
                         
                         img.set({
                             left: designerCanvas.width / 2,
                             top: designerCanvas.height / 2,
                             originX: 'center',
                             originY: 'center',
-                            myType: type,
-                            type: type // Tag it so we know what it is
+                            
+                            // Tag it correctly for sorting later
+                            myType: type, 
+                            data: { type: type } 
                         });
+                        
                         designerCanvas.add(img);
                         designerCanvas.setActiveObject(img);
+                        designerCanvas.renderAll();
                     });
                 };
                 reader.readAsDataURL(input.files[0]);
@@ -1149,25 +1145,30 @@
             btn.innerHTML = "Saving...";
             btn.disabled = true;
         
-            // Convert Canvas Objects to JSON-serializable structure
-            // We convert images to DataURLs (Base64) to store in Firestore
-            // Note: Ideally use Storage, but for small signatures Base64 in Firestore is faster/easier
-            
+            // Map the canvas objects to a clean JSON structure
             const configData = objects.map(obj => {
                 let src = null;
-                if (obj.type === 'image') {
-                    // Downscale for storage efficiency
-                    src = obj.toDataURL({ format: 'png', multiplier: 0.5 });
+                let type = obj.myType || 'unknown';
+        
+                // 1. If it's the Date Text
+                if (obj.text && (obj.text === '{TODAY}' || type === 'date')) {
+                    type = 'date';
+                } 
+                // 2. If it's an Image (Signature or Stamp)
+                else if (obj.getSrc) {
+                    // FIX: Use getSrc() to get the original Base64 string directly.
+                    // This is 100% reliable compared to toDataURL() which can fail/blank out.
+                    src = obj.getSrc();
                 }
         
                 return {
-                    type: obj.myType || 'unknown',
+                    type: type,
                     left: obj.left,
                     top: obj.top,
                     scaleX: obj.scaleX,
                     scaleY: obj.scaleY,
                     angle: obj.angle,
-                    src: src, // Will be null for Date text
+                    src: src, // This will be the Base64 string for images, null for text
                     color: obj.fill
                 };
             });
@@ -1177,11 +1178,9 @@
                     stampConfig: configData
                 });
                 
-                userStampConfig = configData; // Update local state
+                userStampConfig = configData; // Update local state immediately
                 alert("Configuration Saved!");
                 closeStampDesigner();
-                
-                // Update the main UI button logic immediately
                 updateStampButtonUI();
         
             } catch (e) {
@@ -4851,6 +4850,7 @@
     </script>
 </body>
 </html>
+
 
 
 
