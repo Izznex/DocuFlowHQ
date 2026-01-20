@@ -1113,22 +1113,35 @@
             const objects = designerCanvas.getObjects();
             objects.forEach(o => { if (o.myType === 'date') designerCanvas.remove(o); });
         
-            const text = new fabric.Text('{TODAY}', {
-                fontSize: 18,
+            // Generate Real Date String
+            const dateObj = new Date();
+            const dateStr = dateObj.toLocaleDateString('en-GB', { 
+                day: '2-digit', 
+                month: 'short', 
+                year: 'numeric' 
+            }); // Output: "20 Jan 2026"
+        
+            const text = new fabric.Text(dateStr, {
+                fontSize: 24, // Slightly larger for visibility
                 fontFamily: 'Courier New',
-                fill: '#10b981', // Emerald green to denote dynamic field
+                fill: '#00008B', // Dark Blue Ink
                 left: designerCanvas.width / 2,
                 top: designerCanvas.height / 2 + 40,
                 originX: 'center',
                 originY: 'center',
+                
+                // Critical Tags
                 myType: 'date',
+                data: { type: 'date' },
+                
                 fontWeight: 'bold'
             });
             
             designerCanvas.add(text);
             designerCanvas.setActiveObject(text);
+            designerCanvas.renderAll();
         }
-        
+                
         function clearDesigner() {
             designerCanvas.clear();
             designerCanvas.setBackgroundColor('rgba(255,255,255,0.05)', designerCanvas.renderAll.bind(designerCanvas));
@@ -4850,6 +4863,7 @@
     </script>
 </body>
 </html>
+
 
 
 
