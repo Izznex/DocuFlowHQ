@@ -925,61 +925,39 @@
         }
         
         // THE COMPOSITOR
-        function applySavedStampToCanvas() {
+        async function applySavedStampToCanvas() {
             if (!fabricCanvas) return;
             if (!userStampConfig) return;
         
-            // Get today's date formatted
+            // 1. Prepare Date
             const dateObj = new Date();
-            const dateStr = dateObj.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }); // "20 Jan 2026"
+            const dateStr = dateObj.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+        
+            // 2. Separate Items by Type (To enforce Layer Order)
+            const stamps = [];
+            const signatures = [];
+            const dates = [];
+        
+            // Sort config items into buckets
+            userStampConfig.forEach(item => {
+                if (item.type === 'date') dates.push(item);
+                // Identify signatures vs stamps based on type or context
+                // Assuming 'image' is stamp, unless explicitly 'sig'. 
+                // If your designer doesn't differentiate, we treat standard images as Stamps (Bottom)
+                // and add logic to put them below text.
+                else if (item.myType === 'sig' || item.type === 'sig') signatures.push(item);
+                else stamps.push(item);
+            });
         
             const groupObjects = [];
-            let loadedCount = 0;
-            const totalImages = userStampConfig.filter(x => x.src).length;
         
-            // Helper to finish adding to canvas once all parts are ready
-            const tryGroup = () => {
-                if (loadedCount === totalImages) {
-                    const group = new fabric.Group(groupObjects, {
-                        left: fabricCanvas.width / 2,
-                        top: fabricCanvas.height / 2,
-                        originX: 'center',
-                        originY: 'center',
-                        cornerColor: '#10b981',
-                        borderColor: '#10b981',
-                        transparentCorners: false
-                    });
-                    
-                    // Initial Scale (adjust if it's too huge)
-                    group.scaleToWidth(200); 
-        
-                    fabricCanvas.add(group);
-                    fabricCanvas.setActiveObject(group);
-                    fabricCanvas.renderAll();
-                }
-            };
-        
-            userStampConfig.forEach(item => {
-                // 1. Handling Date Text
-                if (item.type === 'date') {
-                    const text = new fabric.Text(dateStr, {
-                        fontSize: 18,
-                        fontFamily: 'Courier New', // Stamp-like font
-                        fill: 'blue', // Default stamp ink color
-                        left: item.left,
-                        top: item.top,
-                        originX: 'center',
-                        originY: 'center',
-                        angle: item.angle,
-                        scaleX: item.scaleX,
-                        scaleY: item.scaleY,
-                        fontWeight: 'bold'
-                    });
-                    groupObjects.push(text);
-                } 
-                // 2. Handling Images (Sig/Stamp)
-                else if (item.src) {
-                    fabric.Image.fromURL(item.src, function(img) {
+            // --- HELPER: Process Image Item ---
+            const processImageItem = async (item) => {
+                // A. Remove Background
+                const cleanSrc = await autoRemoveBackground(item.src);
+                
+                return new Promise(resolve => {
+                    fabric.Image.fromURL(cleanSrc, function(img) {
                         img.set({
                             left: item.left,
                             top: item.top,
@@ -989,15 +967,100 @@
                             scaleX: item.scaleX,
                             scaleY: item.scaleY
                         });
-                        groupObjects.push(img);
-                        loadedCount++;
-                        tryGroup();
+                        resolve(img);
                     });
-                }
+                });
+            };
+        
+            // --- LAYER 1: STAMPS (Bottom) ---
+            for (const item of stamps) {
+                const imgObj = await processImageItem(item);
+                groupObjects.push(imgObj);
+            }
+        
+            // --- LAYER 2: DATES (Middle - On top of Stamp) ---
+            // Fix "Date too big": We enforce a relative font size later, 
+            // but here we ensure it sits logically on top.
+            for (const item of dates) {
+                const text = new fabric.Text(dateStr, {
+                    fontSize: 24, // Base size, will be scaled by group
+                    fontFamily: 'Courier New',
+                    fill: 'blue', 
+                    left: item.left,
+                    top: item.top,
+                    originX: 'center',
+                    originY: 'center',
+                    angle: item.angle,
+                    scaleX: item.scaleX,
+                    scaleY: item.scaleY,
+                    fontWeight: 'bold'
+                });
+                groupObjects.push(text);
+            }
+        
+            // --- LAYER 3: SIGNATURES (Top - On top of Everything) ---
+            for (const item of signatures) {
+                const imgObj = await processImageItem(item);
+                groupObjects.push(imgObj);
+            }
+        
+            // 3. Create Group
+            if (groupObjects.length > 0) {
+                const group = new fabric.Group(groupObjects, {
+                    left: fabricCanvas.width / 2,
+                    top: fabricCanvas.height / 2,
+                    originX: 'center',
+                    originY: 'center',
+                    cornerColor: '#10b981',
+                    borderColor: '#10b981',
+                    transparentCorners: false
+                });
+        
+                // --- SCALING LOGIC (The Fix for "Too Small") ---
+                // We want the stamp to occupy roughly 25% of the document width.
+                // This makes it responsive whether the doc is 500px or 4000px wide.
+                const targetWidth = fabricCanvas.width * 0.25; 
+                group.scaleToWidth(targetWidth);
+        
+                fabricCanvas.add(group);
+                fabricCanvas.setActiveObject(group);
+                fabricCanvas.renderAll();
+            }
+        }
+
+        // HELPER: Auto-remove white background from a Data URL or Image Source
+        function autoRemoveBackground(imageSrc) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.crossOrigin = "Anonymous";
+                img.src = imageSrc;
+                
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    
+                    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const data = imgData.data;
+                    
+                    // Loop through pixels: If R, G, and B are > 180 (Light/White), make Alpha 0
+                    for (let i = 0; i < data.length; i += 4) {
+                        const r = data[i];
+                        const g = data[i + 1];
+                        const b = data[i + 2];
+                        // Threshold: 180 out of 255
+                        if (r > 180 && g > 180 && b > 180) {
+                            data[i + 3] = 0; 
+                        }
+                    }
+                    
+                    ctx.putImageData(imgData, 0, 0);
+                    resolve(canvas.toDataURL());
+                };
+                img.onerror = () => resolve(imageSrc); // Fallback if error
             });
-            
-            // If no images (text only), trigger immediately
-            if (totalImages === 0) tryGroup();
         }
         
         // --- STAMP DESIGNER LOGIC ---
@@ -1037,7 +1100,8 @@
                             top: designerCanvas.height / 2,
                             originX: 'center',
                             originY: 'center',
-                            myType: type // Tag it so we know what it is
+                            myType: type,
+                            type: type // Tag it so we know what it is
                         });
                         designerCanvas.add(img);
                         designerCanvas.setActiveObject(img);
@@ -4787,6 +4851,7 @@
     </script>
 </body>
 </html>
+
 
 
 
