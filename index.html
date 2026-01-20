@@ -101,6 +101,9 @@
         <div class="flex items-center gap-2">
             <i data-lucide="layers" class="text-emerald-400"></i>
             <h1 class="font-bold text-lg tracking-wide">DocuFlow</h1>
+            <button onclick="openStampDesigner()" class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-400 px-3 py-1.5 rounded-full border border-gray-700 active:scale-95 transition-transform" title="Configure Stamp">
+                <i data-lucide="settings" class="w-3 h-3"></i>
+            </button>
         </div>
         <div class="flex gap-2">
             
@@ -432,7 +435,7 @@
                 <div class="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-gray-800 border-r border-b border-gray-700 rotate-45"></div>
             </div>
             
-            <button onclick="toggleStampMenu()" class="relative flex flex-col items-center gap-1.5 group w-14">
+            <button onclick="handleStampButtonClick()" class="relative flex flex-col items-center gap-1.5 group w-14">
                 <div class="w-10 h-10 rounded-full bg-blue-900/30 border border-blue-500/50 flex items-center justify-center group-active:scale-90 transition-all text-blue-400">
                     <i data-lucide="stamp" class="w-5 h-5"></i>
                 </div>
@@ -637,6 +640,47 @@
         </div>
     </div>
 
+    <div id="stamp-designer-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center bg-black/90 backdrop-blur-sm px-4">
+    <div class="bg-gray-800 p-6 rounded-2xl w-full max-w-md border border-gray-700 shadow-2xl flex flex-col gap-4">
+        <div class="flex justify-between items-center">
+            <h3 class="text-lg font-bold text-white">Configure Stamp</h3>
+            <button onclick="closeStampDesigner()" class="text-gray-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+        </div>
+        
+        <p class="text-xs text-gray-400">Arrange your Signature, Stamp, and Date. This layout will be used automatically.</p>
+
+        <div class="relative bg-white/5 rounded-xl overflow-hidden border border-gray-600 flex justify-center items-center h-48 bg-[radial-gradient(#374151_1px,transparent_1px)] [background-size:8px_8px]">
+            <canvas id="designer-canvas" width="350" height="180"></canvas>
+            <div class="absolute top-2 right-2 text-[10px] text-gray-500 font-mono">Preview</div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+            <input type="file" id="design-upload-sig" accept="image/*" class="hidden" onchange="handleDesignUpload(this, 'sig')">
+            <input type="file" id="design-upload-chop" accept="image/*" class="hidden" onchange="handleDesignUpload(this, 'chop')">
+            
+            <button onclick="document.getElementById('design-upload-sig').click()" class="flex flex-col items-center gap-1 p-2 bg-gray-700/50 rounded-lg hover:bg-gray-700 border border-gray-600 transition-colors">
+                <i data-lucide="pen-tool" class="w-4 h-4 text-blue-400"></i>
+                <span class="text-[10px]">Signature</span>
+            </button>
+            <button onclick="document.getElementById('design-upload-chop').click()" class="flex flex-col items-center gap-1 p-2 bg-gray-700/50 rounded-lg hover:bg-gray-700 border border-gray-600 transition-colors">
+                <i data-lucide="stamp" class="w-4 h-4 text-red-400"></i>
+                <span class="text-[10px]">Stamp</span>
+            </button>
+            <button onclick="addDateToDesigner()" class="flex flex-col items-center gap-1 p-2 bg-gray-700/50 rounded-lg hover:bg-gray-700 border border-gray-600 transition-colors">
+                <i data-lucide="calendar" class="w-4 h-4 text-emerald-400"></i>
+                <span class="text-[10px]">Auto-Date</span>
+            </button>
+        </div>
+
+        <div class="flex gap-2 mt-2">
+            <button onclick="clearDesigner()" class="p-3 text-red-400 hover:bg-red-900/20 rounded-lg transition-colors"><i data-lucide="trash-2" class="w-5 h-5"></i></button>
+            <button onclick="saveStampConfiguration()" class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-lg shadow-lg shadow-emerald-900/20 active:scale-95 transition-all">
+                Save Configuration
+            </button>
+        </div>
+    </div>
+</div>
+
     <script src="https://docs.opencv.org/4.10.0/opencv.js" defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/cbor-js@0.1.0/cbor.min.js" defer></script>
@@ -681,6 +725,8 @@
         let pendingDeleteType = 'doc'; // 'doc' or 'job'
         let isStampMode = false;
         let activeInviteCode = null; // Stores the validated code for the guest
+        let designerCanvas = null;
+        let userStampConfig = null;
 
         let currentUser = null;
         let userRole = 'user'; // 'admin' or 'user'
@@ -843,24 +889,282 @@
         }
         
         // Global Flags
-        let userIsApprover = false;
-        
         async function loadUserProfile(uid) {
             const doc = await db.collection('users').doc(uid).get();
             if (doc.exists) {
                 const data = doc.data();
-                
-                // 1. Role (Admin vs User) - Controls archiving, team invite, delete jobs
                 userRole = data.role; 
-                
-                // 2. Approver Status - Controls signing documents
-                // We strictly look at the database flag. Admin does NOT imply Approver anymore.
                 userIsApprover = data.isApprover === true; 
                 
-                console.log(`👤 User Loaded: Role=[${userRole}], Approver=[${userIsApprover}]`);
+                // --- NEW: Load Stamp Config ---
+                if (data.stampConfig) {
+                    userStampConfig = data.stampConfig;
+                    console.log("✅ Custom Stamp Loaded");
+                } else {
+                    userStampConfig = null;
+                }
+                
+                updateStampButtonUI(); // Check if we need to change button behavior
             }
         }
 
+        // Smart Button Handler
+        function handleStampButtonClick() {
+            // If user has a saved configuration, USE IT immediately
+            if (userStampConfig && userStampConfig.length > 0) {
+                applySavedStampToCanvas();
+            } else {
+                // Otherwise, show the classic menu
+                toggleStampMenu();
+            }
+        }
+        
+        // Visual Indicator (Optional) - changes button color if config exists
+        function updateStampButtonUI() {
+            // You could add a checkmark or change color here if you wanted
+        }
+        
+        // THE COMPOSITOR
+        function applySavedStampToCanvas() {
+            if (!fabricCanvas) return;
+            if (!userStampConfig) return;
+        
+            // Get today's date formatted
+            const dateObj = new Date();
+            const dateStr = dateObj.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }); // "20 Jan 2026"
+        
+            const groupObjects = [];
+            let loadedCount = 0;
+            const totalImages = userStampConfig.filter(x => x.src).length;
+        
+            // Helper to finish adding to canvas once all parts are ready
+            const tryGroup = () => {
+                if (loadedCount === totalImages) {
+                    const group = new fabric.Group(groupObjects, {
+                        left: fabricCanvas.width / 2,
+                        top: fabricCanvas.height / 2,
+                        originX: 'center',
+                        originY: 'center',
+                        cornerColor: '#10b981',
+                        borderColor: '#10b981',
+                        transparentCorners: false
+                    });
+                    
+                    // Initial Scale (adjust if it's too huge)
+                    group.scaleToWidth(200); 
+        
+                    fabricCanvas.add(group);
+                    fabricCanvas.setActiveObject(group);
+                    fabricCanvas.renderAll();
+                }
+            };
+        
+            userStampConfig.forEach(item => {
+                // 1. Handling Date Text
+                if (item.type === 'date') {
+                    const text = new fabric.Text(dateStr, {
+                        fontSize: 18,
+                        fontFamily: 'Courier New', // Stamp-like font
+                        fill: 'blue', // Default stamp ink color
+                        left: item.left,
+                        top: item.top,
+                        originX: 'center',
+                        originY: 'center',
+                        angle: item.angle,
+                        scaleX: item.scaleX,
+                        scaleY: item.scaleY,
+                        fontWeight: 'bold'
+                    });
+                    groupObjects.push(text);
+                } 
+                // 2. Handling Images (Sig/Stamp)
+                else if (item.src) {
+                    fabric.Image.fromURL(item.src, function(img) {
+                        img.set({
+                            left: item.left,
+                            top: item.top,
+                            originX: 'center',
+                            originY: 'center',
+                            angle: item.angle,
+                            scaleX: item.scaleX,
+                            scaleY: item.scaleY
+                        });
+                        groupObjects.push(img);
+                        loadedCount++;
+                        tryGroup();
+                    });
+                }
+            });
+            
+            // If no images (text only), trigger immediately
+            if (totalImages === 0) tryGroup();
+        }
+        
+        // --- STAMP DESIGNER LOGIC ---
+
+        function openStampDesigner() {
+            document.getElementById('stamp-designer-modal').classList.remove('hidden');
+            
+            // Initialize Mini Canvas
+            if (!designerCanvas) {
+                designerCanvas = new fabric.Canvas('designer-canvas');
+                designerCanvas.setBackgroundColor('rgba(255,255,255,0.05)', designerCanvas.renderAll.bind(designerCanvas));
+            } else {
+                designerCanvas.clear();
+                designerCanvas.setBackgroundColor('rgba(255,255,255,0.05)', designerCanvas.renderAll.bind(designerCanvas));
+            }
+        
+            // Load existing config if available
+            if (userStampConfig) {
+                loadConfigToCanvas(userStampConfig);
+            }
+        }
+        
+        function closeStampDesigner() {
+            document.getElementById('stamp-designer-modal').classList.add('hidden');
+        }
+        
+        function handleDesignUpload(input, type) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    fabric.Image.fromURL(e.target.result, function(img) {
+                        // Resize to fit reasonable bounds
+                        if (img.width > 150) img.scaleToWidth(150);
+                        
+                        img.set({
+                            left: designerCanvas.width / 2,
+                            top: designerCanvas.height / 2,
+                            originX: 'center',
+                            originY: 'center',
+                            myType: type // Tag it so we know what it is
+                        });
+                        designerCanvas.add(img);
+                        designerCanvas.setActiveObject(img);
+                    });
+                };
+                reader.readAsDataURL(input.files[0]);
+            }
+            input.value = '';
+        }
+        
+        function addDateToDesigner() {
+            // Remove existing date if any (only 1 allowed)
+            const objects = designerCanvas.getObjects();
+            objects.forEach(o => { if (o.myType === 'date') designerCanvas.remove(o); });
+        
+            const text = new fabric.Text('{TODAY}', {
+                fontSize: 18,
+                fontFamily: 'Courier New',
+                fill: '#10b981', // Emerald green to denote dynamic field
+                left: designerCanvas.width / 2,
+                top: designerCanvas.height / 2 + 40,
+                originX: 'center',
+                originY: 'center',
+                myType: 'date',
+                fontWeight: 'bold'
+            });
+            
+            designerCanvas.add(text);
+            designerCanvas.setActiveObject(text);
+        }
+        
+        function clearDesigner() {
+            designerCanvas.clear();
+            designerCanvas.setBackgroundColor('rgba(255,255,255,0.05)', designerCanvas.renderAll.bind(designerCanvas));
+        }
+        
+        // --- SAVING & LOADING ---
+        
+        async function saveStampConfiguration() {
+            if (!designerCanvas) return;
+            const objects = designerCanvas.getObjects();
+            if (objects.length === 0) return alert("Canvas is empty.");
+        
+            const btn = event.currentTarget;
+            btn.innerHTML = "Saving...";
+            btn.disabled = true;
+        
+            // Convert Canvas Objects to JSON-serializable structure
+            // We convert images to DataURLs (Base64) to store in Firestore
+            // Note: Ideally use Storage, but for small signatures Base64 in Firestore is faster/easier
+            
+            const configData = objects.map(obj => {
+                let src = null;
+                if (obj.type === 'image') {
+                    // Downscale for storage efficiency
+                    src = obj.toDataURL({ format: 'png', multiplier: 0.5 });
+                }
+        
+                return {
+                    type: obj.myType || 'unknown',
+                    left: obj.left,
+                    top: obj.top,
+                    scaleX: obj.scaleX,
+                    scaleY: obj.scaleY,
+                    angle: obj.angle,
+                    src: src, // Will be null for Date text
+                    color: obj.fill
+                };
+            });
+        
+            try {
+                await db.collection('users').doc(currentUser.uid).update({
+                    stampConfig: configData
+                });
+                
+                userStampConfig = configData; // Update local state
+                alert("Configuration Saved!");
+                closeStampDesigner();
+                
+                // Update the main UI button logic immediately
+                updateStampButtonUI();
+        
+            } catch (e) {
+                console.error(e);
+                alert("Save failed: " + e.message);
+            } finally {
+                btn.innerHTML = "Save Configuration";
+                btn.disabled = false;
+            }
+        }
+        
+        function loadConfigToCanvas(config) {
+            config.forEach(item => {
+                if (item.type === 'date') {
+                    const text = new fabric.Text('{TODAY}', {
+                        fontSize: 18,
+                        fontFamily: 'Courier New',
+                        fill: '#10b981',
+                        left: item.left,
+                        top: item.top,
+                        originX: 'center',
+                        originY: 'center',
+                        angle: item.angle,
+                        scaleX: item.scaleX,
+                        scaleY: item.scaleY,
+                        myType: 'date',
+                        fontWeight: 'bold'
+                    });
+                    designerCanvas.add(text);
+                } else if (item.src) {
+                    fabric.Image.fromURL(item.src, function(img) {
+                        img.set({
+                            left: item.left,
+                            top: item.top,
+                            originX: 'center',
+                            originY: 'center',
+                            angle: item.angle,
+                            scaleX: item.scaleX,
+                            scaleY: item.scaleY,
+                            myType: item.type
+                        });
+                        designerCanvas.add(img);
+                    });
+                }
+            });
+        }
+                
         // --- TEAM MANAGEMENT LOGIC ---
 
         function switchTeamTab(tab) {
@@ -4483,6 +4787,7 @@
     </script>
 </body>
 </html>
+
 
 
 
