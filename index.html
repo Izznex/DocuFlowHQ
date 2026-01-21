@@ -1781,36 +1781,50 @@
                 
             if (!job) return;
         
-            // 1. Check what documents we have
-            const hasDO = job.documents.some(d => d.docCategory === 'Delivery Order');
-            const hasInv = job.documents.some(d => d.docCategory === 'Invoice');
+            // 1. Get All Documents of specific types
+            const doDocs = job.documents.filter(d => d.docCategory === 'Delivery Order');
+            const invDocs = job.documents.filter(d => d.docCategory === 'Invoice');
         
-            if (!hasDO && !hasInv) {
-                alert("⚠️ No Delivery Order or Invoice found to send.");
+            // 2. CHECK READINESS
+            // Ready = (Not Required) OR (Required AND Signed)
+            const isReady = (d) => !d.requiresSignature || d.isSigned;
+        
+            const hasDO = doDocs.length > 0;
+            const doIsReady = doDocs.some(isReady); // True if at least one page is ready to send
+        
+            const hasInv = invDocs.length > 0;
+            const invIsReady = invDocs.some(isReady);
+        
+            // 3. Gatekeeper: If nothing exists, or everything existing is unapproved
+            if ((!hasDO && !hasInv) || (hasDO && !doIsReady && hasInv && !invIsReady)) {
+                alert("⛔ Nothing Ready to Send\n\nDocuments requiring approval have not been signed yet.");
                 return;
             }
+            // Note: If DO is unapproved but Invoice is Ready (e.g. no sig required), we allow opening to send just the Invoice.
         
-            // 2. Update Modal UI
+            // 4. Update Modal UI
             const doEl = document.getElementById('confirm-do-status');
             const invEl = document.getElementById('confirm-inv-status');
         
-            if (hasDO) {
-                doEl.textContent = "Delivery Order: Ready";
-                doEl.className = "text-white font-medium";
+            // --- DO STATUS TEXT ---
+            if (!hasDO) {
+                doEl.innerHTML = "Delivery Order: <span class='text-gray-500 italic'>Not Found</span>";
+            } else if (doIsReady) {
+                doEl.innerHTML = "Delivery Order: <span class='text-emerald-400 font-bold'>Ready to Send</span>";
             } else {
-                doEl.textContent = "Delivery Order: Not Found";
-                doEl.className = "text-gray-500 italic";
+                doEl.innerHTML = "Delivery Order: <span class='text-orange-400 italic'>Pending Approval (Skipping)</span>";
             }
         
-            if (hasInv) {
-                invEl.textContent = "Invoice: Ready";
-                invEl.className = "text-white font-medium";
+            // --- INVOICE STATUS TEXT ---
+            if (!hasInv) {
+                invEl.innerHTML = "Invoice: <span class='text-gray-500 italic'>Not Found</span>";
+            } else if (invIsReady) {
+                invEl.innerHTML = "Invoice: <span class='text-emerald-400 font-bold'>Ready to Send</span>";
             } else {
-                invEl.textContent = "Invoice: Not Found";
-                invEl.className = "text-gray-500 italic";
+                invEl.innerHTML = "Invoice: <span class='text-orange-400 italic'>Pending Approval (Skipping)</span>";
             }
         
-            // 3. Show Modal
+            // 5. Show Modal
             document.getElementById('email-confirm-modal').classList.remove('hidden');
         }
         
@@ -1842,12 +1856,19 @@
                 const sourceList = isViewingArchive ? archivedJobs : jobs;
                 const job = sourceList.find(j => j.id === currentJobId);
                 
-                // 1. Separate the Documents
-                const doDocs = job.documents.filter(d => d.docCategory === 'Delivery Order');
-                const invDocs = job.documents.filter(d => d.docCategory === 'Invoice');
+                // --- 1. FILTER: The "Is Ready" Logic ---
+                // We include a document if:
+                // A. It does NOT require a signature
+                // OR
+                // B. It DOES require a signature AND it IS signed
+                
+                const isReadyFilter = (d) => (!d.requiresSignature || d.isSigned);
+        
+                const doDocs = job.documents.filter(d => d.docCategory === 'Delivery Order' && isReadyFilter(d));
+                const invDocs = job.documents.filter(d => d.docCategory === 'Invoice' && isReadyFilter(d));
         
                 if (doDocs.length === 0 && invDocs.length === 0) {
-                    throw new Error("No Delivery Order or Invoice found.");
+                    throw new Error("No ready documents found to send.");
                 }
         
                 // PDF Generator Helper
@@ -1914,23 +1935,18 @@
                 });
         
                 if (response.ok) {
-                    
-                    // --- 5. UPDATE DATABASE STATUS (THE FIX) ---
                     if (db) {
                         const updateData = {};
-                        // We use generic flags: sentDO, sentInvoice
+                        // Only update flags if we actually sent that type
                         if (sendingDO) updateData.sentDO = true;
                         if (sendingInv) updateData.sentInvoice = true;
                         
                         await db.collection('jobs').doc(currentJobId).update(updateData);
                         
-                        // Update Local State immediately so UI refreshes without reload
                         if (sendingDO) job.sentDO = true;
                         if (sendingInv) job.sentInvoice = true;
-                        renderJobs(); // Refresh the list to show the new badge
+                        renderJobs(); 
                     }
-                    // -------------------------------------------
-        
                     alert(`✅ ${typeLabel} sent successfully!`);
                 } else {
                     throw new Error("Server rejected the request.");
