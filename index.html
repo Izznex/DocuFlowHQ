@@ -1579,14 +1579,15 @@
             loader.className = 'fixed inset-0 z-[100] bg-black/80 flex items-center justify-center flex-col text-emerald-400 font-bold';
             loader.innerHTML = '<div class="loader mb-4"></div>Processing PDF Pages...';
             document.body.appendChild(loader);
-
+        
             try {
                 const arrayBuffer = await file.arrayBuffer();
                 const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
                 
                 batchQueue = [];
                 isPdfBatch = true; 
-
+        
+                // Loop through all pages
                 for (let i = 1; i <= pdf.numPages; i++) {
                     const page = await pdf.getPage(i);
                     const scale = 2.0; 
@@ -1596,30 +1597,40 @@
                     const context = canvas.getContext('2d');
                     canvas.height = viewport.height;
                     canvas.width = viewport.width;
-
+        
                     await page.render({ canvasContext: context, viewport: viewport }).promise;
                     
                     const imgData = canvas.toDataURL('image/webp', 0.9);
-
-                    if (i === 1) {
+        
+                    // --- THE FIX IS HERE ---
+                    // If it is the LAST page, put it on the editor screen.
+                    // If it is any PREVIOUS page, put it in the queue.
+                    // This ensures Save order: [Page 1, Page 2...] + [Last Page]
+                    if (i === pdf.numPages) {
                         closeScanner();
-                        openEditor(imgData);
+                        openEditor(imgData); // Show the last page to the user
                     } else {
-                        batchQueue.push(imgData);
+                        batchQueue.push(imgData); // Store earlier pages in background
                     }
                 }
                 
                 const title = document.querySelector('#add-menu-modal h3');
                 if(title) title.textContent = `PDF: ${pdf.numPages} Pages Loaded`;
-
+                
+                // Optional: Alert the user so they aren't confused why they see Page 5
+                if (pdf.numPages > 1) {
+                    alert(`✅ Loaded ${pdf.numPages} pages.\n\nYou are viewing the last page (Page ${pdf.numPages}).\nPages 1-${pdf.numPages-1} are queued safely.`);
+                }
+        
             } catch (e) {
                 console.error("PDF Error:", e);
                 alert("Could not read PDF file.");
             } finally {
-                document.body.removeChild(loader);
+                if(document.body.contains(loader)) {
+                    document.body.removeChild(loader);
+                }
             }
         }
-
         function getSafeDocSize(doc) {
             // 1. If it's a string (Base64 - e.g. just scanned), use length 
             // (This works because Base64 is larger than binary, so it's a safe overestimate)
@@ -3090,29 +3101,24 @@
         function handleAddPage() {
             if (!fabricCanvas) return;
             
-            // --- FIX 1: Reset Viewport to capture FULL page, not just zoomed view ---
+            // 1. Snapshot current page (High Quality)
             const originalVpt = fabricCanvas.viewportTransform.slice();
             const originalZoom = fabricCanvas.getZoom();
             
             fabricCanvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
             fabricCanvas.setZoom(1);
             if(fabricCanvas.backgroundImage) fabricCanvas.backgroundImage.setCoords();
-            // -----------------------------------------------------------------------
-        
+            
             const multiplier = 2; 
             const dataURL = fabricCanvas.toDataURL({ format: 'webp', quality: 0.9, multiplier: multiplier });
             
             batchQueue.push(dataURL);
-            
-            // --- FIX 2: Tell the system we are in Batch Mode ---
             isPdfBatch = true; 
-            // --------------------------------------------------
-        
-            // Restore view so user doesn't see a glitch
+            
             fabricCanvas.setViewportTransform(originalVpt);
             fabricCanvas.setZoom(originalZoom);
         
-            // UI Feedback
+            // 2. UI Feedback & Transition
             const btn = event.currentTarget || document.activeElement;
             if(btn) {
                 const originalText = btn.innerHTML;
@@ -3120,9 +3126,14 @@
                 
                 setTimeout(() => {
                     btn.innerHTML = originalText;
-                    document.getElementById('view-editor').classList.add('hidden');
                     
-                    // Open the upload menu for the NEXT page
+                    // --- VISUAL FIX: Restore the Document List Background ---
+                    if (currentJobId) {
+                        document.getElementById('view-job-details').classList.remove('hidden');
+                    }
+                    // -------------------------------------------------------
+        
+                    document.getElementById('view-editor').classList.add('hidden');
                     openAddMenu();
                     
                     const title = document.querySelector('#add-menu-modal h3');
@@ -3130,7 +3141,6 @@
                 }, 400);
             }
         }
-
         async function triggerEnhanceFromEditor() {
             if (!fabricCanvas || !fabricCanvas.backgroundImage) return;
         
@@ -3685,22 +3695,38 @@
         
         function triggerDocUpload() { document.getElementById('doc-upload-input').click(); }
         function handleDocUpload(input) {
-            editingDocId = null;
+            // --- LOGIC FIX: Don't forget what we are editing if adding pages ---
+            if (batchQueue.length === 0) {
+                editingDocId = null;
+            }
+            // ------------------------------------------------------------------
+        
             if (input.files && input.files[0]) {
                 const file = input.files[0];
+                
+                // PDF Handling
                 if (file.type === 'application/pdf') {
                     processPdfFile(file);
                     input.value = '';
                     return;
                 }
+                
+                // Image Handling
                 if (!file.type.startsWith('image/')) { 
                     alert("⚠️ Restricted Format\n\nOnly Images and PDFs are allowed."); 
                     input.value = ''; 
                     return; 
                 }
-                isPdfBatch = false; 
+                
+                // Note: If we are adding pages, we keep isPdfBatch = true. 
+                // Only reset if it's a fresh single upload.
+                if (batchQueue.length === 0) isPdfBatch = false; 
+                
                 const reader = new FileReader();
-                reader.onload = function(e) { closeScanner(); openEditor(e.target.result); }
+                reader.onload = function(e) { 
+                    closeScanner(); 
+                    openEditor(e.target.result); 
+                }
                 reader.readAsDataURL(file);
             }
             input.value = ''; 
@@ -4203,7 +4229,12 @@
         }
 
         async function handlePasteClick() {
-            editingDocId = null;
+            // --- LOGIC FIX ---
+            if (batchQueue.length === 0) {
+                editingDocId = null;
+            }
+            // -----------------
+        
             try {
                 const items = await navigator.clipboard.read();
                 for (const item of items) {
@@ -4218,7 +4249,6 @@
                 alert("No image found in clipboard.");
             } catch (err) { console.warn(err); alert("Use Ctrl+V to paste."); }
         }
-
         function setupPasteListener() {
             document.addEventListener('paste', function(e) {
                 if (!currentJobId && document.getElementById('view-editor').classList.contains('hidden')) return;
@@ -5105,39 +5135,3 @@
     </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
