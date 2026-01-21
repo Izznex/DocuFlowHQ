@@ -1931,9 +1931,15 @@
                 };
         
                 // 4. Send
+                // Define your secret key (Use a random string)
+                const APP_SECRET_KEY = "DocuFlow_Secure_998877"; 
+                
                 const response = await fetch(POWER_AUTOMATE_URL, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'X-App-Secret': APP_SECRET_KEY  // <--- The Secret Handshake
+                    },
                     body: JSON.stringify(payload)
                 });
         
@@ -5409,4 +5415,5 @@
     </script>
 </body>
 </html>
+
 
