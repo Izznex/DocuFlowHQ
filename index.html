@@ -613,6 +613,13 @@
               src="" 
               style="transform: scale(1) translate(0px, 0px);">
     </div>
+        <button id="lb-prev" onclick="navigateLightbox(-1)" class="absolute left-2 md:left-8 top-1/2 -translate-y-1/2 p-3 md:p-4 bg-gray-800/50 hover:bg-gray-700/80 text-white/70 hover:text-white rounded-full backdrop-blur-md z-50 hidden transition-all border border-white/10 shadow-xl active:scale-95 group">
+            <i data-lucide="chevron-left" class="w-8 h-8 md:w-10 md:h-10 transition-transform group-hover:-translate-x-1"></i>
+        </button>
+
+        <button id="lb-next" onclick="navigateLightbox(1)" class="absolute right-2 md:right-8 top-1/2 -translate-y-1/2 p-3 md:p-4 bg-gray-800/50 hover:bg-gray-700/80 text-white/70 hover:text-white rounded-full backdrop-blur-md z-50 hidden transition-all border border-white/10 shadow-xl active:scale-95 group">
+            <i data-lucide="chevron-right" class="w-8 h-8 md:w-10 md:h-10 transition-transform group-hover:translate-x-1"></i>
+        </button>
 
     <div class="absolute bottom-24 flex items-center gap-4 bg-gray-900/90 backdrop-blur px-4 py-2 rounded-full border border-gray-700 z-30 shadow-2xl">
         <button onclick="updateLightboxZoom(-0.2)" class="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-full transition-colors"><i data-lucide="minus" class="w-5 h-5"></i></button>
@@ -2326,6 +2333,45 @@
             startScale: 1,
             isrAF: false 
         };
+
+        // --- LIGHTBOX NAVIGATION STATE ---
+        let lightboxPlaylist = []; // Stores the ordered list of docs to flip through
+        let lightboxIndex = -1;    // Current position in the playlist
+        
+        // 1. Navigation Function
+        function navigateLightbox(direction) {
+            // direction: -1 (Prev) or 1 (Next)
+            const newIndex = lightboxIndex + direction;
+        
+            // Boundary Check
+            if (newIndex < 0 || newIndex >= lightboxPlaylist.length) return;
+        
+            // Load the new document
+            const nextDoc = lightboxPlaylist[newIndex];
+            viewDocument(nextDoc.id); // Recursively call viewDocument to load it
+        }
+        
+        // 2. Helper to update Arrow Visibility
+        function updateLightboxArrows() {
+            const prevBtn = document.getElementById('lb-prev');
+            const nextBtn = document.getElementById('lb-next');
+            
+            if (!prevBtn || !nextBtn) return;
+        
+            // Show/Hide Left Arrow
+            if (lightboxIndex > 0) {
+                prevBtn.classList.remove('hidden');
+            } else {
+                prevBtn.classList.add('hidden');
+            }
+        
+            // Show/Hide Right Arrow
+            if (lightboxIndex < lightboxPlaylist.length - 1) {
+                nextBtn.classList.remove('hidden');
+            } else {
+                nextBtn.classList.add('hidden');
+            }
+        }
         
         function initLightboxGestures() {
             const container = document.getElementById('lightbox-container');
@@ -2783,11 +2829,32 @@
 
         let lightboxGesturesInit = false; // Flag to ensure listeners are added only once
 
-        function viewDocument(docId) {
+        async function viewDocument(docId) {
             const sourceList = isViewingArchive ? archivedJobs : jobs;
             const job = sourceList.find(j => j.id === currentJobId);
             const doc = job.documents.find(d => d.id === docId);
-            if(!doc) return;
+            
+            if (!doc) return;
+        
+            // --- 1. SETUP PLAYLIST (For Navigation) ---
+            // Detect if this doc has siblings (is part of a group)
+            if (doc.groupId) {
+                // Find siblings
+                const siblings = job.documents.filter(d => d.groupId === doc.groupId);
+                // Sort by page number
+                siblings.sort((a, b) => (a.pageIndex || 0) - (b.pageIndex || 0));
+                
+                lightboxPlaylist = siblings;
+                lightboxIndex = siblings.findIndex(d => d.id === docId);
+            } else {
+                // Single document (Playlist of 1)
+                lightboxPlaylist = [doc];
+                lightboxIndex = 0;
+            }
+            
+            // Update Arrow UI
+            updateLightboxArrows();
+            // ------------------------------------------
         
             // --- COLD STORAGE CHECK ---
             if (job.isArchived && doc.isOffline && !doc.src) {
@@ -2802,35 +2869,42 @@
                 }
                 return;
             }
-
+        
             viewingDocId = docId; 
-            document.body.style.cursor = 'wait';
+            
+            // UI Loading State
+            const img = document.getElementById('lightbox-img');
+            const lightbox = document.getElementById('view-lightbox');
+            
+            // Smooth transition: if lightbox is already open (navigation), fade image slightly
+            if (!lightbox.classList.contains('hidden')) {
+                img.style.opacity = '0.5';
+            } else {
+                document.body.style.cursor = 'wait';
+            }
         
             ensureDocImageLoaded(job, doc).then(imgSrc => {
                 document.body.style.cursor = 'default';
+                
                 if (imgSrc) {
-                    const lightbox = document.getElementById('view-lightbox');
-                    const img = document.getElementById('lightbox-img');
                     const editBtn = document.getElementById('lightbox-edit-btn');
                     const nameInput = document.getElementById('lightbox-filename');
                     
-                    // 1. SHOW LIGHTBOX FIRST
-                    // We must remove 'hidden' BEFORE setting src so the container has dimensions
+                    // 1. SHOW LIGHTBOX
                     lightbox.classList.remove('hidden');
-
-                    // 2. DEFINE LOAD HANDLER
+        
+                    // 2. SET IMAGE & ANIMATE
                     img.onload = () => {
-                        // Use requestAnimationFrame to ensure the DOM has painted the image size
                         requestAnimationFrame(() => {
                             resetLightboxZoom(); 
+                            img.style.opacity = '1'; // Fade back in
                         });
                     };
                     
-                    // 3. SET SOURCE (Triggers loading)
                     img.src = imgSrc;
                     nameInput.value = doc.name.replace(/\.[^/.]+$/, "");
                     
-                    // 4. BUTTON LOGIC
+                    // 3. BUTTON LOGIC
                     if (job.isArchived) {
                         editBtn.classList.add('hidden');
                         nameInput.disabled = true;
@@ -2838,13 +2912,14 @@
                         editBtn.classList.remove('hidden');
                         nameInput.disabled = false;
                         
+                        // IMPORTANT: Update Edit Button to edit the CURRENTLY visible page
                         editBtn.onclick = function() {
                             closeLightbox(); 
-                            editExistingDoc(docId); 
+                            editExistingDoc(docId); // Use the ID passed to this function
                         };
                     }
         
-                    // 5. INITIALIZE GESTURES (ONCE)
+                    // 4. INIT GESTURES (Once)
                     if (!lightboxGesturesInit) {
                         initLightboxGestures();
                         lightboxGesturesInit = true;
@@ -5098,9 +5173,20 @@
                 }
             }, 100);
         };
+
+        document.addEventListener('keydown', (e) => {
+            // Only works if lightbox is open
+            const lightbox = document.getElementById('view-lightbox');
+            if (!lightbox || lightbox.classList.contains('hidden')) return;
+        
+            if (e.key === 'ArrowLeft') navigateLightbox(-1);
+            if (e.key === 'ArrowRight') navigateLightbox(1);
+            if (e.key === 'Escape') closeLightbox();
+        });
         
     </script>
 </body>
 </html>
+
 
 
