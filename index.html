@@ -199,7 +199,7 @@
                 <button onclick="promptDelete(currentJobId, 'job')" class="p-2 text-red-400 hover:text-white bg-red-900/20 rounded-full border border-red-900/50 active:scale-95 transition-transform" title="Delete Job">
                     <i data-lucide="trash-2" class="w-5 h-5"></i>
                 </button>
-                <button id="btn-email-do" onclick="sendDoInvoiceEmail()" class="p-2 text-emerald-400 hover:text-white bg-emerald-900/20 rounded-full border border-emerald-900/50 active:scale-95 transition-transform" title="Email DO & Invoice">
+                <button id="btn-email-do" onclick="openEmailConfirmModal()" class="p-2 text-emerald-400 hover:text-white bg-emerald-900/20 rounded-full border border-emerald-900/50 active:scale-95 transition-transform" title="Email DO & Invoice">
                     <i data-lucide="send" class="w-5 h-5"></i>
                 </button>
             </div>
@@ -217,6 +217,39 @@
         </button>
     </div>
 
+    <div id="email-confirm-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+        <div class="bg-gray-800 p-6 rounded-2xl w-full max-w-sm border border-emerald-500/30 shadow-2xl">
+            <div class="flex items-center gap-3 mb-4">
+                <div class="p-3 bg-emerald-900/30 rounded-full text-emerald-400 shrink-0">
+                    <i data-lucide="send" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-white">Send Documents?</h3>
+                    <p class="text-xs text-gray-400">This will email the Purchasing Team.</p>
+                </div>
+            </div>
+            
+            <div class="bg-gray-900/50 p-3 rounded-lg border border-gray-700 mb-6 text-sm text-gray-300">
+                <p class="flex items-center gap-2 mb-1">
+                    <i data-lucide="file-check" class="w-4 h-4 text-emerald-500"></i>
+                    <span id="confirm-do-status" class="opacity-50">Checking DO...</span>
+                </p>
+                <p class="flex items-center gap-2">
+                    <i data-lucide="file-check" class="w-4 h-4 text-emerald-500"></i>
+                    <span id="confirm-inv-status" class="opacity-50">Checking Invoice...</span>
+                </p>
+            </div>
+    
+            <div class="flex gap-3">
+                <button onclick="closeEmailConfirmModal()" class="flex-1 py-3 text-gray-400 font-medium hover:text-white rounded-lg hover:bg-gray-700/50 transition-colors">Cancel</button>
+                <button onclick="executeEmailSend()" class="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg shadow-lg shadow-emerald-900/20 active:scale-95 transition-transform flex justify-center items-center gap-2">
+                    <span>Send Now</span>
+                    <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+    
     <div id="add-menu-modal" class="fixed inset-0 z-[80] hidden flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm px-4 pb-4 sm:pb-0 transition-opacity duration-200">
         <div class="bg-gray-800 p-6 rounded-2xl w-full max-w-sm border border-gray-700 shadow-2xl flex flex-col gap-3">
             <h3 class="text-lg font-bold text-white mb-2 text-center">Add Document</h3>
@@ -1739,6 +1772,58 @@
             }
         }
 
+        function openEmailConfirmModal() {
+            if (!currentJobId) return;
+            
+            const job = isViewingArchive 
+                ? archivedJobs.find(j => j.id === currentJobId) 
+                : jobs.find(j => j.id === currentJobId);
+                
+            if (!job) return;
+        
+            // 1. Check what documents we have
+            const hasDO = job.documents.some(d => d.docCategory === 'Delivery Order');
+            const hasInv = job.documents.some(d => d.docCategory === 'Invoice');
+        
+            if (!hasDO && !hasInv) {
+                alert("⚠️ No Delivery Order or Invoice found to send.");
+                return;
+            }
+        
+            // 2. Update Modal UI
+            const doEl = document.getElementById('confirm-do-status');
+            const invEl = document.getElementById('confirm-inv-status');
+        
+            if (hasDO) {
+                doEl.textContent = "Delivery Order: Ready";
+                doEl.className = "text-white font-medium";
+            } else {
+                doEl.textContent = "Delivery Order: Not Found";
+                doEl.className = "text-gray-500 italic";
+            }
+        
+            if (hasInv) {
+                invEl.textContent = "Invoice: Ready";
+                invEl.className = "text-white font-medium";
+            } else {
+                invEl.textContent = "Invoice: Not Found";
+                invEl.className = "text-gray-500 italic";
+            }
+        
+            // 3. Show Modal
+            document.getElementById('email-confirm-modal').classList.remove('hidden');
+        }
+        
+        function closeEmailConfirmModal() {
+            document.getElementById('email-confirm-modal').classList.add('hidden');
+        }
+        
+        function executeEmailSend() {
+            closeEmailConfirmModal();
+            // Call your existing function to actually send it
+            sendDoInvoiceEmail(); 
+        }
+        
         // 1. Paste your Power Automate URL here
         const POWER_AUTOMATE_URL = "https://default8219d0ef0d8c4b61b846695996de1f.20.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/43e861f8f5bb4fa89bbcfd5d12054ab7/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=rL_ctHx1a2fTL49NrOdU_er0PRQ6VWbtdzJ5dXEzCLU"; 
         
@@ -5307,10 +5392,3 @@
     </script>
 </body>
 </html>
-
-
-
-
-
-
-
