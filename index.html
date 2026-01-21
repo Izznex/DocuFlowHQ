@@ -95,7 +95,7 @@
     </div>
 
     <canvas id="processing-canvas" class="hidden"></canvas>
-    <input type="file" id="doc-upload-input" accept="image/*,application/pdf" class="hidden" onchange="handleDocUpload(this)">
+    <input type="file" id="doc-upload-input" accept="image/*,application/pdf" class="hidden" onchange="(this)">
 
     <header id="app-header" class="fixed top-0 w-full z-50 bg-gray-900/90 backdrop-blur border-b border-gray-800 p-4 flex justify-between items-center h-16 hardware-accel hidden">
         <div class="flex items-center gap-2">
@@ -1584,51 +1584,42 @@
                 const arrayBuffer = await file.arrayBuffer();
                 const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
                 
-                batchQueue = [];
+                // --- FIX: Only clear queue if starting fresh. If adding pages, KEEP queue. ---
+                if (!isPdfBatch && (!batchQueue || batchQueue.length === 0)) {
+                    batchQueue = [];
+                }
                 isPdfBatch = true; 
+                // -----------------------------------------------------------------------------
         
-                // Loop through all pages
                 for (let i = 1; i <= pdf.numPages; i++) {
                     const page = await pdf.getPage(i);
                     const scale = 2.0; 
                     const viewport = page.getViewport({ scale: scale });
-                    
                     const canvas = document.createElement('canvas');
                     const context = canvas.getContext('2d');
                     canvas.height = viewport.height;
                     canvas.width = viewport.width;
         
                     await page.render({ canvasContext: context, viewport: viewport }).promise;
-                    
                     const imgData = canvas.toDataURL('image/webp', 0.9);
         
-                    // --- THE FIX IS HERE ---
-                    // If it is the LAST page, put it on the editor screen.
-                    // If it is any PREVIOUS page, put it in the queue.
-                    // This ensures Save order: [Page 1, Page 2...] + [Last Page]
+                    // Logic: Queue earlier pages, show Last page
                     if (i === pdf.numPages) {
                         closeScanner();
-                        openEditor(imgData); // Show the last page to the user
+                        openEditor(imgData); 
                     } else {
-                        batchQueue.push(imgData); // Store earlier pages in background
+                        batchQueue.push(imgData); 
                     }
                 }
                 
                 const title = document.querySelector('#add-menu-modal h3');
                 if(title) title.textContent = `PDF: ${pdf.numPages} Pages Loaded`;
-                
-                // Optional: Alert the user so they aren't confused why they see Page 5
-                if (pdf.numPages > 1) {
-                    alert(`✅ Loaded ${pdf.numPages} pages.\n\nYou are viewing the last page (Page ${pdf.numPages}).\nPages 1-${pdf.numPages-1} are queued safely.`);
-                }
         
             } catch (e) {
                 console.error("PDF Error:", e);
                 alert("Could not read PDF file.");
             } finally {
-                if(document.body.contains(loader)) {
-                    document.body.removeChild(loader);
-                }
+                if(document.body.contains(loader)) document.body.removeChild(loader);
             }
         }
         function getSafeDocSize(doc) {
@@ -4441,15 +4432,12 @@
         }
 
         async function confirmSave() {
-            // 1. GET UI ELEMENTS
             const categorySelect = document.getElementById('doc-type-select');
             const category = categorySelect.value;
             const saveBtn = document.getElementById('btn-confirm-save');
-            
             const reqCheckbox = document.getElementById('require-sign-checkbox');
             const signCheckbox = document.getElementById('mark-signed-checkbox');
             
-            // 2. READ SETTINGS & APPROVER LOGIC
             let requiresSignature = reqCheckbox ? reqCheckbox.checked : false;
             let isSigned = false;
             let currentApproverName = null;
@@ -4464,18 +4452,17 @@
                 }
             } 
             else if (editingDocId && currentJobId) {
-                    const job = jobs.find(j => j.id === currentJobId);
-                    if (job) {
+                 const job = jobs.find(j => j.id === currentJobId);
+                 if (job) {
                     const doc = job.documents.find(d => d.id === editingDocId);
                     if (doc && doc.isSigned) {
                         isSigned = true;
                         currentApproverName = doc.approverName;
                         currentApproverUid = doc.approverUid;
                     }
-                    }
+                 }
             }
         
-            // 3. UI LOCK
             const originalBtnText = saveBtn.innerHTML;
             saveBtn.innerHTML = 'Saving...'; 
             saveBtn.disabled = true;
@@ -4483,93 +4470,73 @@
             await new Promise(r => setTimeout(r, 50));
         
             try {
-                // --- 4. CAPTURE CURRENT PAGE (VIEWPORT SAFE) ---
+                // 1. Capture Screen
                 const originalVpt = fabricCanvas.viewportTransform.slice();
-                const originalZoom = fabricCanvas.getZoom();
-        
-                // Reset to full view
                 fabricCanvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
                 fabricCanvas.setZoom(1);
                 if(fabricCanvas.backgroundImage) fabricCanvas.backgroundImage.setCoords();
-                
-                // Calculate Multiplier
+        
                 const targetSize = 1920; 
                 const currentLongestSide = Math.max(fabricCanvas.width, fabricCanvas.height);
                 let finalMultiplier = targetSize / currentLongestSide;
-                if (editorScaleFactor > 0) {
-                        finalMultiplier = Math.min(finalMultiplier, 1 / editorScaleFactor);
-                }
+                if (editorScaleFactor > 0) finalMultiplier = Math.min(finalMultiplier, 1 / editorScaleFactor);
         
-                // Generate Image
-                const currentDataURL = fabricCanvas.toDataURL({ 
-                    format: 'webp', 
-                    quality: 0.85, 
-                    multiplier: finalMultiplier 
-                });
+                const currentDataURL = fabricCanvas.toDataURL({ format: 'webp', quality: 0.85, multiplier: finalMultiplier });
                 
-                // Restore View
-                fabricCanvas.setViewportTransform(originalVpt);
-                fabricCanvas.setZoom(originalZoom);
+                fabricCanvas.setViewportTransform(originalVpt); 
+                fabricCanvas.setZoom(fabricCanvas.getZoom());
         
-                // --- 5. COMBINE PAGES (ORDER FIX) ---
-                // Ensure the queue (previous pages) comes BEFORE the current page
+                // 2. Prepare List
                 const finalSaveList = [...batchQueue, currentDataURL];
                 const totalPages = finalSaveList.length;
                 
-                // --- 6. GROUPING LOGIC (THE FIX) ---
+                // --- 3. ROBUST GROUPING LOGIC (THE FIX) ---
                 let groupId = null;
                 let startingIndex = 0;
         
-                // CASE A: Editing existing doc
                 if (editingDocId && currentJobId) {
                     const job = jobs.find(j => j.id === currentJobId);
                     const doc = job.documents ? job.documents.find(d => d.id === editingDocId) : null;
                     
                     if (doc) {
-                        // If we are adding pages to a doc that wasn't a group, make it one now!
-                        if (!doc.groupId && totalPages > 1) { // Logic changed here
-                             doc.groupId = 'grp_' + Date.now(); 
-                             // IMPORTANT: We need to save this new groupId to the original doc later
+                        // If adding pages, we MUST have a Group ID.
+                        // If the doc didn't have one, Generate one now.
+                        if (!doc.groupId && totalPages > 1) {
+                             groupId = 'grp_' + Date.now();
+                        } else {
+                             groupId = doc.groupId;
                         }
-                        groupId = doc.groupId || (totalPages > 1 ? 'grp_' + Date.now() : null);
+                        
+                        // Fallback: If still no group ID but multiple pages, make one
+                        if (!groupId && totalPages > 1) groupId = 'grp_' + Date.now();
+                        
                         startingIndex = doc.pageIndex || 0;
                     }
-                } 
-                // CASE B: New Upload (Multi-page)
-                else if (totalPages > 1) {
+                } else if (totalPages > 1) {
                     groupId = 'grp_' + Date.now();
                 }
+                // ------------------------------------------
         
                 const baseId = Math.random().toString(36).substr(2, 4).toUpperCase();
         
-                // --- 7. SAVE LOOP ---
                 for (let i = 0; i < totalPages; i++) {
                     const dataUrl = finalSaveList[i];
                     
-                    // Calculate absolute page index
-                    // If editing, we overwrite page 0, then add page 1, 2...
+                    // Name Logic: Page 1, Page 2...
+                    // If we have a group, we ALWAYS append Page #
                     let currentIndex = startingIndex + i;
-                    let pageSuffix = (totalPages > 1 || groupId) ? ` (Page ${currentIndex + 1})` : "";
+                    let pageSuffix = (groupId) ? ` (Page ${currentIndex + 1})` : "";
                     
-                    // Overwrite ONLY the first page if editing
                     let idToOverwrite = (i === 0 && editingDocId) ? editingDocId : null;
         
                     await saveSingleDocument(
-                        dataUrl, 
-                        category, 
-                        isSigned, 
-                        baseId, 
-                        pageSuffix, 
-                        idToOverwrite, 
-                        requiresSignature, 
-                        groupId, 
-                        currentIndex,
-                        currentApproverName, 
-                        currentApproverUid
+                        dataUrl, category, isSigned, baseId, pageSuffix, 
+                        idToOverwrite, requiresSignature, 
+                        groupId, currentIndex,
+                        currentApproverName, currentApproverUid
                     );
                 }
         
-                // --- 8. CLEANUP ---
                 isPdfBatch = false;
                 batchQueue = [];
                 const title = document.querySelector('#add-menu-modal h3');
@@ -4589,7 +4556,7 @@
                 saveBtn.disabled = false;
             }
         }
-        
+                
         // UPDATED SIGNATURE: Added groupId and pageIndex
         // UPDATED SIGNATURE: Added approver details
         async function saveSingleDocument(dataURL, category, isSigned, baseId, nameSuffix, overwriteId = null, requiresSignature = false, groupId = null, pageIndex = 0, approverName = null, approverUid = null) {
@@ -5135,3 +5102,4 @@
     </script>
 </body>
 </html>
+
