@@ -1781,47 +1781,56 @@
                 
             if (!job) return;
         
-            // 1. Get All Documents of specific types
+            // 1. Get Documents
             const doDocs = job.documents.filter(d => d.docCategory === 'Delivery Order');
             const invDocs = job.documents.filter(d => d.docCategory === 'Invoice');
         
-            // 2. CHECK READINESS
+            const hasDO = doDocs.length > 0;
+            const hasInv = invDocs.length > 0;
+        
+            // 2. Define "Ready" Logic
             // Ready = (Not Required) OR (Required AND Signed)
             const isReady = (d) => !d.requiresSignature || d.isSigned;
         
-            const hasDO = doDocs.length > 0;
-            const doIsReady = doDocs.some(isReady); // True if at least one page is ready to send
+            // Check if the *entire stack* for that type is ready
+            // (If any page is missing a required signature, the whole doc is "Pending")
+            const doIsReady = hasDO && doDocs.every(isReady);
+            const invIsReady = hasInv && invDocs.every(isReady);
         
-            const hasInv = invDocs.length > 0;
-            const invIsReady = invDocs.some(isReady);
-        
-            // 3. Gatekeeper: If nothing exists, or everything existing is unapproved
-            if ((!hasDO && !hasInv) || (hasDO && !doIsReady && hasInv && !invIsReady)) {
-                alert("⛔ Nothing Ready to Send\n\nDocuments requiring approval have not been signed yet.");
+            // --- 3. STRICT GATEKEEPER ---
+            
+            // Check A: Is there anything to send at all?
+            if (!hasDO && !hasInv) {
+                alert("⚠️ Nothing to Send\n\nNo Delivery Order or Invoice found.");
                 return;
             }
-            // Note: If DO is unapproved but Invoice is Ready (e.g. no sig required), we allow opening to send just the Invoice.
         
-            // 4. Update Modal UI
+            // Check B: Is DO blocking us?
+            if (hasDO && !doIsReady) {
+                alert("⛔ Cannot Send\n\nThe Delivery Order requires approval but has not been signed yet.");
+                return;
+            }
+        
+            // Check C: Is Invoice blocking us?
+            if (hasInv && !invIsReady) {
+                alert("⛔ Cannot Send\n\nThe Invoice requires approval but has not been signed yet.");
+                return;
+            }
+        
+            // 4. Update Modal UI (If we passed the gates)
             const doEl = document.getElementById('confirm-do-status');
             const invEl = document.getElementById('confirm-inv-status');
         
-            // --- DO STATUS TEXT ---
-            if (!hasDO) {
-                doEl.innerHTML = "Delivery Order: <span class='text-gray-500 italic'>Not Found</span>";
-            } else if (doIsReady) {
-                doEl.innerHTML = "Delivery Order: <span class='text-emerald-400 font-bold'>Ready to Send</span>";
+            if (hasDO) {
+                doEl.innerHTML = "Delivery Order: <span class='text-emerald-400 font-bold'>Ready</span>";
             } else {
-                doEl.innerHTML = "Delivery Order: <span class='text-orange-400 italic'>Pending Approval (Skipping)</span>";
+                doEl.innerHTML = "Delivery Order: <span class='text-gray-500 italic'>Not Found</span>";
             }
         
-            // --- INVOICE STATUS TEXT ---
-            if (!hasInv) {
-                invEl.innerHTML = "Invoice: <span class='text-gray-500 italic'>Not Found</span>";
-            } else if (invIsReady) {
-                invEl.innerHTML = "Invoice: <span class='text-emerald-400 font-bold'>Ready to Send</span>";
+            if (hasInv) {
+                invEl.innerHTML = "Invoice: <span class='text-emerald-400 font-bold'>Ready</span>";
             } else {
-                invEl.innerHTML = "Invoice: <span class='text-orange-400 italic'>Pending Approval (Skipping)</span>";
+                invEl.innerHTML = "Invoice: <span class='text-gray-500 italic'>Not Found</span>";
             }
         
             // 5. Show Modal
@@ -1843,7 +1852,6 @@
         
         // Ensure this is at the top of your script
         // const POWER_AUTOMATE_URL = "YOUR_EXISTING_URL"; 
-        
         async function sendDoInvoiceEmail() {
             if (!currentJobId) return;
             
@@ -1856,19 +1864,14 @@
                 const sourceList = isViewingArchive ? archivedJobs : jobs;
                 const job = sourceList.find(j => j.id === currentJobId);
                 
-                // --- 1. FILTER: The "Is Ready" Logic ---
-                // We include a document if:
-                // A. It does NOT require a signature
-                // OR
-                // B. It DOES require a signature AND it IS signed
-                
+                // 1. FILTER (We assume they are ready because the Modal checked it)
                 const isReadyFilter = (d) => (!d.requiresSignature || d.isSigned);
         
                 const doDocs = job.documents.filter(d => d.docCategory === 'Delivery Order' && isReadyFilter(d));
                 const invDocs = job.documents.filter(d => d.docCategory === 'Invoice' && isReadyFilter(d));
         
                 if (doDocs.length === 0 && invDocs.length === 0) {
-                    throw new Error("No ready documents found to send.");
+                    throw new Error("Validation Error: No ready documents found.");
                 }
         
                 // PDF Generator Helper
@@ -1937,10 +1940,8 @@
                 if (response.ok) {
                     if (db) {
                         const updateData = {};
-                        // Only update flags if we actually sent that type
                         if (sendingDO) updateData.sentDO = true;
                         if (sendingInv) updateData.sentInvoice = true;
-                        
                         await db.collection('jobs').doc(currentJobId).update(updateData);
                         
                         if (sendingDO) job.sentDO = true;
@@ -5408,3 +5409,4 @@
     </script>
 </body>
 </html>
+
