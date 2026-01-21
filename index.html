@@ -4284,15 +4284,13 @@
             let isSigned = false;
             let currentApproverName = null;
             let currentApproverUid = null;
-
-            // If user is Approver AND checked the "Mark as Approved" box
+        
             if (userIsApprover && signCheckbox && signCheckbox.checked) {
                 isSigned = true;
-                requiresSignature = true; // Force this true so the Green Badge appears
+                requiresSignature = true;
                 currentApproverName = (currentUser.email.split('@')[0]);
                 currentApproverUid = currentUser.uid;
             } 
-            // If editing an existing doc that was ALREADY signed, preserve it
             else if (editingDocId && currentJobId) {
                  const job = jobs.find(j => j.id === currentJobId);
                  if (job) {
@@ -4304,11 +4302,10 @@
                     }
                  }
             }
-
-            // --- PRESERVE GROUP LOGIC ---
+        
             let existingGroupId = null;
             let existingPageIndex = 0;
-
+        
             if (editingDocId && currentJobId) {
                 const job = jobs.find(j => j.id === currentJobId);
                 if (job) {
@@ -4319,30 +4316,53 @@
                     }
                 }
             }
-
+        
             const originalBtnText = saveBtn.innerHTML;
             saveBtn.innerHTML = 'Saving...'; 
             saveBtn.disabled = true;
-
+        
             await new Promise(r => setTimeout(r, 50));
-
+        
             try {
+                // --- 3. VIEWPORT SAFETY BLOCK (THE FIX) ---
+                // Store the user's current zoom/pan state
+                const originalVpt = fabricCanvas.viewportTransform.slice();
+                const originalZoom = fabricCanvas.getZoom();
+        
+                // Force reset to show the FULL document
+                fabricCanvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+                fabricCanvas.setZoom(1);
+                
+                // Optional: Ensure background image is centered if you moved it separately
+                // (Usually not needed if background is locked, but good safety)
+                if(fabricCanvas.backgroundImage) {
+                    fabricCanvas.backgroundImage.setCoords();
+                }
+                
+                // ------------------------------------------
+        
                 // --- PERFORMANCE OPTIMIZATION ---
                 const targetSize = 1920; 
                 const currentLongestSide = Math.max(fabricCanvas.width, fabricCanvas.height);
                 let finalMultiplier = targetSize / currentLongestSide;
-
+        
                 if (editorScaleFactor > 0) {
                      const originalResMultiplier = 1 / editorScaleFactor;
                      finalMultiplier = Math.min(finalMultiplier, originalResMultiplier);
                 }
-
+        
+                // Generate the image from the RESET view
                 const currentDataURL = fabricCanvas.toDataURL({ 
                     format: 'webp', 
                     quality: 0.85, 
                     multiplier: finalMultiplier 
                 });
                 
+                // --- RESTORE VIEWPORT (Put it back so user doesn't see a jump) ---
+                fabricCanvas.setViewportTransform(originalVpt);
+                fabricCanvas.setZoom(originalZoom);
+                // -----------------------------------------------------------------
+        
                 let finalSaveList = [];
                 if (isPdfBatch) {
                     finalSaveList = [currentDataURL, ...batchQueue];
@@ -4357,40 +4377,39 @@
                 if (!groupId && totalPages > 1) {
                     groupId = 'grp_' + Date.now();
                 }
-
-                // 3. SAVE LOOP
+        
+                // SAVE LOOP
                 for (let i = 0; i < totalPages; i++) {
                     const dataUrl = finalSaveList[i];
                     let pageSuffix = totalPages > 1 ? ` (Page ${i + 1})` : "";
                     
                     let idToOverwrite = null;
                     let currentIndex = i;
-
+        
                     if (i === 0 && editingDocId) {
                         idToOverwrite = editingDocId;
                         if (!isPdfBatch) currentIndex = existingPageIndex;
                     }
-
-                    // Pass the extra signature data to the helper
+        
                     await saveSingleDocument(
                         dataUrl, category, isSigned, baseId, pageSuffix, 
                         idToOverwrite, requiresSignature, 
                         groupId, currentIndex,
-                        currentApproverName, currentApproverUid // <--- Pass these new values
+                        currentApproverName, currentApproverUid
                     );
                 }
-
+        
                 isPdfBatch = false;
                 batchQueue = [];
                 const title = document.querySelector('#add-menu-modal h3');
                 if(title) title.textContent = 'Add Document';
-
+        
                 closeSaveModal(); 
                 cancelEdit(); 
                 editingDocId = null;
-
+        
                 if (totalPages > 1) alert(`✅ Saved ${totalPages} pages.`);
-
+        
             } catch (err) {
                 console.error("Save Error", err);
                 alert("Error saving document.");
@@ -4945,6 +4964,7 @@
     </script>
 </body>
 </html>
+
 
 
 
