@@ -542,10 +542,11 @@
                 <select id="doc-type-select" class="w-full bg-gray-900 text-white border border-gray-700 rounded-lg p-3 pr-10 focus:border-emerald-500 outline-none appearance-none">
                     <option value="Quotation">Quotation</option>
                     <option value="Purchase Request">Purchase Request</option>
-                    <option value="Purchase Order">Purchase Order </option>
+                    <option value="Purchase Order">Purchase Order</option>
                     <option value="Service Report">Service Report</option>
                     <option value="Delivery Order">Delivery Order 🌟</option>
                     <option value="Invoice">Invoice</option>
+                    <option value="Investment Form">Investment Form</option>
                     <option value="Permit to Work">Permit to Work</option>
                     <option value="Other">Other</option>
                 </select>
@@ -1532,9 +1533,16 @@
         }
 
         function getJobStatus(job) {
-            if(!job || !job.documents) return 'Open';
-            const hasSignedDO = job.documents.some(d => d.docCategory === 'Delivery Order' && d.isSigned === true);
-            return hasSignedDO ? 'Completed' : 'Open';
+            if (!job || !job.documents) return 'Open';
+        
+            // Check if ANY document matches criteria:
+            // (Category is DO or Invoice) AND (It is Signed/Approved)
+            const isCompleted = job.documents.some(d => 
+                (d.docCategory === 'Delivery Order' || d.docCategory === 'Invoice') && 
+                d.isSigned === true
+            );
+        
+            return isCompleted ? 'Completed' : 'Open';
         }
 
         function getDocBadgesHTML(documents) {
@@ -1548,10 +1556,13 @@
                 { key: 'Service Report', label: 'SR', color: 'bg-blue-900/40 text-blue-300 border-blue-700/50' },
                 { key: 'Delivery Order', label: 'DO', color: 'bg-cyan-900/40 text-cyan-300 border-cyan-700/50' },
                 { key: 'Invoice', label: 'INV', color: 'bg-pink-900/40 text-pink-300 border-pink-700/50' },
+                // --- NEW BADGE ---
+                { key: 'Investment Form', label: 'IF', color: 'bg-amber-900/40 text-amber-300 border-amber-700/50' },
+                // -----------------
                 { key: 'Permit to Work', label: 'PTW', color: 'bg-red-900/40 text-red-300 border-red-700/50' },
                 { key: 'Other', label: 'OTH', color: 'bg-gray-700/40 text-gray-400 border-gray-600/50' }
             ];
-
+        
             let html = '';
             badgeOrder.forEach(badge => {
                 if (presentCats.has(badge.key)) {
@@ -1563,7 +1574,6 @@
             });
             return html;
         }
-
         async function processPdfFile(file) {
             const loader = document.createElement('div');
             loader.className = 'fixed inset-0 z-[100] bg-black/80 flex items-center justify-center flex-col text-emerald-400 font-bold';
@@ -1970,8 +1980,18 @@
                 displayItems.push(mainDoc);
             });
 
-            // --- 2. SORTING ---
-            const sortWeights = { 'Quotation': 1, 'Purchase Request': 2, 'Purchase Order': 3, 'Service Report': 4, 'Delivery Order': 5, 'Invoice': 6, 'Other': 99 };
+           // --- 2. SORTING ---
+            const sortWeights = { 
+                'Quotation': 1, 
+                'Investment Form': 2,   // <--- Now it sits here (After Quotation)
+                'Purchase Request': 3, 
+                'Purchase Order': 4, 
+                'Service Report': 5, 
+                'Delivery Order': 6, 
+                'Invoice': 7, 
+                'Permit to Work': 8, 
+                'Other': 99 
+            };
             
             displayItems.sort((a, b) => {
                 const weightA = sortWeights[a.docCategory] || 99;
@@ -4882,6 +4902,7 @@
     </script>
 </body>
 </html>
+
 
 
 
