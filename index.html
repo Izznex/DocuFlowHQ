@@ -95,7 +95,7 @@
     </div>
 
     <canvas id="processing-canvas" class="hidden"></canvas>
-    <input type="file" id="doc-upload-input" accept="image/*,application/pdf" class="hidden" onchange="(this)">
+    <input type="file" id="doc-upload-input" accept="image/*,application/pdf" class="hidden" onchange="handleDocUpload(this)">
 
     <header id="app-header" class="fixed top-0 w-full z-50 bg-gray-900/90 backdrop-blur border-b border-gray-800 p-4 flex justify-between items-center h-16 hardware-accel hidden">
         <div class="flex items-center gap-2">
@@ -5102,4 +5102,5 @@
     </script>
 </body>
 </html>
+
 
