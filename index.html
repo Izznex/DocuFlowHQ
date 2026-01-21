@@ -195,8 +195,8 @@
                 <button onclick="promptDelete(currentJobId, 'job')" class="p-2 text-red-400 hover:text-white bg-red-900/20 rounded-full border border-red-900/50 active:scale-95 transition-transform" title="Delete Job">
                     <i data-lucide="trash-2" class="w-5 h-5"></i>
                 </button>
-                <button onclick="downloadJobBundle()" class="p-2 text-blue-400 hover:text-white bg-blue-900/20 rounded-full border border-blue-900/50 active:scale-95 transition-transform" title="Download PDF">
-                    <i data-lucide="file-stack" class="w-5 h-5"></i>
+                <button id="btn-email-do" onclick="sendDoInvoiceEmail()" class="p-2 text-emerald-400 hover:text-white bg-emerald-900/20 rounded-full border border-emerald-900/50 active:scale-95 transition-transform" title="Email DO & Invoice">
+                    <i data-lucide="send" class="w-5 h-5"></i>
                 </button>
             </div>
         </div>
@@ -1695,6 +1695,102 @@
             if(alertBox) {
                 if(percentage >= 80) alertBox.classList.remove('hidden');
                 else alertBox.classList.add('hidden');
+            }
+        }
+
+        // 1. Paste your Power Automate URL here
+        const POWER_AUTOMATE_URL = "https://default8219d0ef0d8c4b61b846695996de1f.20.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/43e861f8f5bb4fa89bbcfd5d12054ab7/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=rL_ctHx1a2fTL49NrOdU_er0PRQ6VWbtdzJ5dXEzCLU"; 
+        
+        async function sendDoInvoiceEmail() {
+            if (!currentJobId) return;
+            
+            const btn = document.getElementById('btn-email-do');
+            const originalContent = btn.innerHTML;
+            
+            // Loading Animation
+            btn.innerHTML = `<div class="loader w-4 h-4 border-t-emerald-400"></div>`;
+            btn.disabled = true;
+        
+            try {
+                const sourceList = isViewingArchive ? archivedJobs : jobs;
+                const job = sourceList.find(j => j.id === currentJobId);
+                
+                // --- 2. FILTER: Find only Delivery Order and Invoice ---
+                const targetDocs = job.documents.filter(d => 
+                    d.docCategory === 'Delivery Order' || d.docCategory === 'Invoice'
+                );
+        
+                // Sort: Delivery Order first, then Invoice
+                targetDocs.sort((a, b) => {
+                    if(a.docCategory === 'Delivery Order') return -1;
+                    return 1;
+                });
+        
+                if (targetDocs.length === 0) throw new Error("No DO or Invoice found to send.");
+        
+                // --- 3. GENERATE PDF ---
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+                
+                for (let i = 0; i < targetDocs.length; i++) {
+                    const doc = targetDocs[i];
+                    const imgSrc = await ensureDocImageLoaded(job, doc);
+                    
+                    if (imgSrc) {
+                        const img = new Image();
+                        img.src = imgSrc;
+                        await new Promise(r => img.onload = r);
+        
+                        if (i > 0) pdf.addPage();
+                        
+                        // Fit to Page Logic
+                        const pageWidth = pdf.internal.pageSize.getWidth();
+                        const pageHeight = pdf.internal.pageSize.getHeight();
+                        const widthRatio = pageWidth / img.width;
+                        const heightRatio = pageHeight / img.height;
+                        const ratio = Math.min(widthRatio, heightRatio);
+                        const w = img.width * ratio;
+                        const h = img.height * ratio;
+                        
+                        pdf.addImage(img, 'JPEG', (pageWidth - w)/2, (pageHeight - h)/2, w, h);
+                    }
+                }
+        
+                // Convert PDF to Base64 (Data URI)
+                const pdfDataUri = pdf.output('datauristring');
+                const pdfBase64 = pdfDataUri.split(',')[1]; // Remove "data:application/pdf;base64," header
+        
+                // --- 4. PREPARE EMAIL PAYLOAD ---
+                const emailBody = `Hi Purchasing Team,\n\nAttached is the DO and Invoice for your perusal.\n\nRef: ${job.client} (${job.id})`;
+        
+                const payload = {
+                    "email_subject": `DO & Invoice - ${job.client}`,
+                    "file_name": `DO_Invoice_${job.client}.pdf`,
+                    "email_body": emailBody, 
+                    "file_content": pdfBase64
+                };
+        
+                // --- 5. SEND TO POWER AUTOMATE ---
+                const response = await fetch(POWER_AUTOMATE_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+        
+                if (response.ok) {
+                    alert("✅ DO & Invoice Sent Successfully!");
+                } else {
+                    throw new Error("Server rejected the request.");
+                }
+        
+            } catch (e) {
+                console.error("Email Error:", e);
+                alert("Failed: " + e.message);
+            } finally {
+                btn.innerHTML = originalContent;
+                btn.disabled = false;
+                // Re-init icons just in case
+                if(typeof lucide !== 'undefined') lucide.createIcons();
             }
         }
         
@@ -4964,6 +5060,7 @@
     </script>
 </body>
 </html>
+
 
 
 
