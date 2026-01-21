@@ -192,6 +192,10 @@
             </div>
             
             <div class="flex gap-2">
+                <button id="btn-admin-status" onclick="openStatusOverrideModal()" class="hidden p-2 text-purple-400 hover:text-white bg-purple-900/20 rounded-full border border-purple-900/50 active:scale-95 transition-transform" title="Admin: Set Status">
+                    <i data-lucide="list-checks" class="w-5 h-5"></i>
+                </button>
+            
                 <button onclick="promptDelete(currentJobId, 'job')" class="p-2 text-red-400 hover:text-white bg-red-900/20 rounded-full border border-red-900/50 active:scale-95 transition-transform" title="Delete Job">
                     <i data-lucide="trash-2" class="w-5 h-5"></i>
                 </button>
@@ -558,6 +562,34 @@
             <div class="flex gap-3">
                 <button id="btn-cancel-save" onclick="closeSaveModal()" class="flex-1 py-3 text-gray-400 font-medium hover:text-white rounded-lg hover:bg-gray-700/50 transition-colors">Cancel</button>
                 <button id="btn-confirm-save" onclick="confirmSave()" class="flex-1 py-3 bg-emerald-500 text-white font-bold rounded-lg shadow-lg shadow-emerald-500/20 active:scale-95 transition-transform flex justify-center items-center gap-2"><span>Save</span><i data-lucide="check" class="w-4 h-4"></i></button>
+            </div>
+        </div>
+    </div>
+
+    <div id="status-override-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+        <div class="bg-gray-800 p-6 rounded-2xl w-full max-w-sm border border-purple-500/30 shadow-2xl">
+            <div class="flex items-center gap-3 mb-4">
+                <div class="p-2 bg-purple-900/30 rounded-lg text-purple-400"><i data-lucide="shield-alert" class="w-5 h-5"></i></div>
+                <h3 class="text-lg font-bold text-white">Manual Status</h3>
+            </div>
+            
+            <p class="text-xs text-gray-400 mb-6">Manually toggle the sent status flags. This does <b>not</b> send an email.</p>
+    
+            <div class="space-y-3 mb-6">
+                <div class="flex items-center justify-between p-3 bg-gray-900/50 rounded-lg border border-gray-700 cursor-pointer" onclick="document.getElementById('override-do').click()">
+                    <label for="override-do" class="text-sm font-bold text-gray-300 cursor-pointer">DO Sent</label>
+                    <input type="checkbox" id="override-do" class="w-5 h-5 rounded border-gray-600 text-purple-500 focus:ring-purple-500 bg-gray-800">
+                </div>
+    
+                <div class="flex items-center justify-between p-3 bg-gray-900/50 rounded-lg border border-gray-700 cursor-pointer" onclick="document.getElementById('override-inv').click()">
+                    <label for="override-inv" class="text-sm font-bold text-gray-300 cursor-pointer">Invoice Sent</label>
+                    <input type="checkbox" id="override-inv" class="w-5 h-5 rounded border-gray-600 text-purple-500 focus:ring-purple-500 bg-gray-800">
+                </div>
+            </div>
+    
+            <div class="flex gap-3">
+                <button onclick="document.getElementById('status-override-modal').classList.add('hidden')" class="flex-1 py-3 text-gray-400 font-medium hover:text-white rounded-lg hover:bg-gray-700/50 transition-colors">Cancel</button>
+                <button onclick="confirmStatusOverride()" class="flex-1 py-3 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-lg shadow-lg shadow-purple-900/20 active:scale-95 transition-transform">Update</button>
             </div>
         </div>
     </div>
@@ -2109,6 +2141,15 @@
             const sourceList = isViewingArchive ? archivedJobs : jobs;
             const job = sourceList.find(j => j.id === id);
             const status = getJobStatus(job);
+
+            const adminBtn = document.getElementById('btn-admin-status');
+            if (adminBtn) {
+                if (typeof userRole !== 'undefined' && userRole === 'admin' && !isViewingArchive) {
+                    adminBtn.classList.remove('hidden');
+                } else {
+                    adminBtn.classList.add('hidden');
+                }
+            }
             
             document.getElementById('detail-client').textContent = job.client;
             document.getElementById('detail-id').textContent = '#' + job.id;
@@ -2127,6 +2168,63 @@
             renderDocumentList(job); // Added the function name back
             
             document.getElementById('view-job-details').classList.remove('hidden');
+        }
+
+        function openStatusOverrideModal() {
+            if (!currentJobId) return;
+            const job = jobs.find(j => j.id === currentJobId);
+            if (!job) return;
+        
+            // Load current values
+            document.getElementById('override-do').checked = job.sentDO === true;
+            document.getElementById('override-inv').checked = job.sentInvoice === true;
+        
+            document.getElementById('status-override-modal').classList.remove('hidden');
+        }
+
+        async function confirmStatusOverride() {
+            if (!currentJobId) return;
+            
+            // 1. Get Values
+            const sentDO = document.getElementById('override-do').checked;
+            const sentInvoice = document.getElementById('override-inv').checked;
+            
+            const modal = document.getElementById('status-override-modal');
+            const btn = modal.querySelector('button[onclick="confirmStatusOverride()"]');
+            const originalText = btn.innerHTML;
+            
+            btn.innerHTML = "Saving...";
+            btn.disabled = true;
+        
+            try {
+                // 2. Update Database
+                if (db) {
+                    await db.collection('jobs').doc(currentJobId).update({
+                        sentDO: sentDO,
+                        sentInvoice: sentInvoice
+                    });
+                }
+        
+                // 3. Update Local State (Optimistic)
+                const job = jobs.find(j => j.id === currentJobId);
+                if (job) {
+                    job.sentDO = sentDO;
+                    job.sentInvoice = sentInvoice;
+                }
+        
+                // 4. Refresh Main List (to show new badges)
+                renderJobs();
+                
+                modal.classList.add('hidden');
+                alert("✅ Status Updated");
+        
+            } catch (e) {
+                console.error("Override failed", e);
+                alert("Error updating status.");
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
         }
         
         function closeJobDetails() {
@@ -5209,6 +5307,7 @@
     </script>
 </body>
 </html>
+
 
 
 
