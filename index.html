@@ -3089,21 +3089,46 @@
 
         function handleAddPage() {
             if (!fabricCanvas) return;
+            
+            // --- FIX 1: Reset Viewport to capture FULL page, not just zoomed view ---
+            const originalVpt = fabricCanvas.viewportTransform.slice();
+            const originalZoom = fabricCanvas.getZoom();
+            
+            fabricCanvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+            fabricCanvas.setZoom(1);
+            if(fabricCanvas.backgroundImage) fabricCanvas.backgroundImage.setCoords();
+            // -----------------------------------------------------------------------
+        
             const multiplier = 2; 
             const dataURL = fabricCanvas.toDataURL({ format: 'webp', quality: 0.9, multiplier: multiplier });
-            batchQueue.push(dataURL);
-
-            const btn = event.currentTarget;
-            const originalText = btn.innerHTML;
-            btn.innerHTML = `<span class='text-green-400'>Added!</span>`;
             
-            setTimeout(() => {
-                btn.innerHTML = originalText;
-                document.getElementById('view-editor').classList.add('hidden');
-                openAddMenu();
-                const title = document.querySelector('#add-menu-modal h3');
-                if(title) title.textContent = `Add Page ${batchQueue.length + 1}`;
-            }, 400);
+            batchQueue.push(dataURL);
+            
+            // --- FIX 2: Tell the system we are in Batch Mode ---
+            isPdfBatch = true; 
+            // --------------------------------------------------
+        
+            // Restore view so user doesn't see a glitch
+            fabricCanvas.setViewportTransform(originalVpt);
+            fabricCanvas.setZoom(originalZoom);
+        
+            // UI Feedback
+            const btn = event.currentTarget || document.activeElement;
+            if(btn) {
+                const originalText = btn.innerHTML;
+                btn.innerHTML = `<span class='text-green-400'>Added!</span>`;
+                
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    document.getElementById('view-editor').classList.add('hidden');
+                    
+                    // Open the upload menu for the NEXT page
+                    openAddMenu();
+                    
+                    const title = document.querySelector('#add-menu-modal h3');
+                    if(title) title.textContent = `Add Page ${batchQueue.length + 1}`;
+                }, 400);
+            }
         }
 
         async function triggerEnhanceFromEditor() {
@@ -4395,7 +4420,7 @@
             const signCheckbox = document.getElementById('mark-signed-checkbox');
             
             // 2. READ SETTINGS & APPROVER LOGIC
-            let requiresSignature = reqCheckbox.checked;
+            let requiresSignature = reqCheckbox ? reqCheckbox.checked : false;
             let isSigned = false;
             let currentApproverName = null;
             let currentApproverUid = null;
@@ -4403,35 +4428,24 @@
             if (userIsApprover && signCheckbox && signCheckbox.checked) {
                 isSigned = true;
                 requiresSignature = true;
-                currentApproverName = (currentUser.email.split('@')[0]);
-                currentApproverUid = currentUser.uid;
+                if(typeof currentUser !== 'undefined') {
+                    currentApproverName = (currentUser.email.split('@')[0]);
+                    currentApproverUid = currentUser.uid;
+                }
             } 
             else if (editingDocId && currentJobId) {
-                 const job = jobs.find(j => j.id === currentJobId);
-                 if (job) {
+                    const job = jobs.find(j => j.id === currentJobId);
+                    if (job) {
                     const doc = job.documents.find(d => d.id === editingDocId);
                     if (doc && doc.isSigned) {
                         isSigned = true;
                         currentApproverName = doc.approverName;
                         currentApproverUid = doc.approverUid;
                     }
-                 }
-            }
-        
-            let existingGroupId = null;
-            let existingPageIndex = 0;
-        
-            if (editingDocId && currentJobId) {
-                const job = jobs.find(j => j.id === currentJobId);
-                if (job) {
-                    const doc = job.documents.find(d => d.id === editingDocId);
-                    if (doc) {
-                        existingGroupId = doc.groupId || null;
-                        existingPageIndex = doc.pageIndex || 0;
                     }
-                }
             }
         
+            // 3. UI LOCK
             const originalBtnText = saveBtn.innerHTML;
             saveBtn.innerHTML = 'Saving...'; 
             saveBtn.disabled = true;
@@ -4439,81 +4453,93 @@
             await new Promise(r => setTimeout(r, 50));
         
             try {
-                // --- 3. VIEWPORT SAFETY BLOCK (THE FIX) ---
-                // Store the user's current zoom/pan state
+                // --- 4. CAPTURE CURRENT PAGE (VIEWPORT SAFE) ---
                 const originalVpt = fabricCanvas.viewportTransform.slice();
                 const originalZoom = fabricCanvas.getZoom();
         
-                // Force reset to show the FULL document
+                // Reset to full view
                 fabricCanvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
                 fabricCanvas.setZoom(1);
+                if(fabricCanvas.backgroundImage) fabricCanvas.backgroundImage.setCoords();
                 
-                // Optional: Ensure background image is centered if you moved it separately
-                // (Usually not needed if background is locked, but good safety)
-                if(fabricCanvas.backgroundImage) {
-                    fabricCanvas.backgroundImage.setCoords();
-                }
-                
-                // ------------------------------------------
-        
-                // --- PERFORMANCE OPTIMIZATION ---
+                // Calculate Multiplier
                 const targetSize = 1920; 
                 const currentLongestSide = Math.max(fabricCanvas.width, fabricCanvas.height);
                 let finalMultiplier = targetSize / currentLongestSide;
-        
                 if (editorScaleFactor > 0) {
-                     const originalResMultiplier = 1 / editorScaleFactor;
-                     finalMultiplier = Math.min(finalMultiplier, originalResMultiplier);
+                        finalMultiplier = Math.min(finalMultiplier, 1 / editorScaleFactor);
                 }
         
-                // Generate the image from the RESET view
+                // Generate Image
                 const currentDataURL = fabricCanvas.toDataURL({ 
                     format: 'webp', 
                     quality: 0.85, 
                     multiplier: finalMultiplier 
                 });
                 
-                // --- RESTORE VIEWPORT (Put it back so user doesn't see a jump) ---
+                // Restore View
                 fabricCanvas.setViewportTransform(originalVpt);
                 fabricCanvas.setZoom(originalZoom);
-                // -----------------------------------------------------------------
         
-                let finalSaveList = [];
-                if (isPdfBatch) {
-                    finalSaveList = [currentDataURL, ...batchQueue];
-                } else {
-                    finalSaveList = [...batchQueue, currentDataURL];
-                }
-                
+                // --- 5. COMBINE PAGES (ORDER FIX) ---
+                // Ensure the queue (previous pages) comes BEFORE the current page
+                const finalSaveList = [...batchQueue, currentDataURL];
                 const totalPages = finalSaveList.length;
-                const baseId = Math.random().toString(36).substr(2, 4).toUpperCase();
                 
-                let groupId = existingGroupId;
-                if (!groupId && totalPages > 1) {
+                // --- 6. GROUPING LOGIC (THE FIX) ---
+                let groupId = null;
+                let startingIndex = 0;
+        
+                // CASE A: Editing existing doc
+                if (editingDocId && currentJobId) {
+                    const job = jobs.find(j => j.id === currentJobId);
+                    const doc = job.documents ? job.documents.find(d => d.id === editingDocId) : null;
+                    
+                    if (doc) {
+                        // If we are adding pages to a doc that wasn't a group, make it one now!
+                        if (!doc.groupId && totalPages > 1) { // Logic changed here
+                             doc.groupId = 'grp_' + Date.now(); 
+                             // IMPORTANT: We need to save this new groupId to the original doc later
+                        }
+                        groupId = doc.groupId || (totalPages > 1 ? 'grp_' + Date.now() : null);
+                        startingIndex = doc.pageIndex || 0;
+                    }
+                } 
+                // CASE B: New Upload (Multi-page)
+                else if (totalPages > 1) {
                     groupId = 'grp_' + Date.now();
                 }
         
-                // SAVE LOOP
+                const baseId = Math.random().toString(36).substr(2, 4).toUpperCase();
+        
+                // --- 7. SAVE LOOP ---
                 for (let i = 0; i < totalPages; i++) {
                     const dataUrl = finalSaveList[i];
-                    let pageSuffix = totalPages > 1 ? ` (Page ${i + 1})` : "";
                     
-                    let idToOverwrite = null;
-                    let currentIndex = i;
-        
-                    if (i === 0 && editingDocId) {
-                        idToOverwrite = editingDocId;
-                        if (!isPdfBatch) currentIndex = existingPageIndex;
-                    }
+                    // Calculate absolute page index
+                    // If editing, we overwrite page 0, then add page 1, 2...
+                    let currentIndex = startingIndex + i;
+                    let pageSuffix = (totalPages > 1 || groupId) ? ` (Page ${currentIndex + 1})` : "";
+                    
+                    // Overwrite ONLY the first page if editing
+                    let idToOverwrite = (i === 0 && editingDocId) ? editingDocId : null;
         
                     await saveSingleDocument(
-                        dataUrl, category, isSigned, baseId, pageSuffix, 
-                        idToOverwrite, requiresSignature, 
-                        groupId, currentIndex,
-                        currentApproverName, currentApproverUid
+                        dataUrl, 
+                        category, 
+                        isSigned, 
+                        baseId, 
+                        pageSuffix, 
+                        idToOverwrite, 
+                        requiresSignature, 
+                        groupId, 
+                        currentIndex,
+                        currentApproverName, 
+                        currentApproverUid
                     );
                 }
         
+                // --- 8. CLEANUP ---
                 isPdfBatch = false;
                 batchQueue = [];
                 const title = document.querySelector('#add-menu-modal h3');
@@ -5079,6 +5105,7 @@
     </script>
 </body>
 </html>
+
 
 
 
