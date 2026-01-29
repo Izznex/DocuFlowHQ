@@ -2397,60 +2397,60 @@
             
             // --- 3. RENDER ---
             list.innerHTML = displayItems.map(item => {
+                // ... inside displayItems.map(item => { ...
                 if (item._isGroup) {
-                    // === GROUP ROW (PARENT) ===
                     const groupId = item.groupId;
                     const count = item._groupDocs.length;
                     let groupName = item.name.replace(/\.[^/.]+$/, "").replace(/\s*\(Page\s+\d+\).*/i, '');
-                    
-                    // --- AGGREGATE STATUS LOGIC (THE FIX) ---
-                    // Check if ANY child has a pending requirement
+                
+                    // Aggregated Status logic remains same
                     const hasPending = item._groupDocs.some(d => d.requiresSignature && !d.isSigned);
-                    // Check if ANY child is signed (and no pending issues exist)
                     const hasSigned = !hasPending && item._groupDocs.some(d => d.isSigned);
-
+                
                     let groupBadge = '';
                     if (hasPending) {
-                        // Main Banner Warning
                         groupBadge = `<span class="ml-2 px-2 py-0.5 rounded-full bg-orange-900/40 border border-orange-500 text-[10px] text-orange-400 font-bold uppercase tracking-wider flex items-center gap-1 animate-pulse"><i data-lucide="alert-circle" class="w-3 h-3"></i> Approval Req.</span>`;
                     } else if (hasSigned) {
-                        // Main Banner Success
                         groupBadge = `<span class="ml-2 px-2 py-0.5 rounded-full bg-emerald-900/40 border border-emerald-500/50 text-[10px] text-emerald-400 font-bold uppercase tracking-wider flex items-center gap-1"><i data-lucide="check-circle-2" class="w-3 h-3"></i> Signed</span>`;
                     }
-
-                    // Render Children
+                
                     const childrenHtml = item._groupDocs.map(doc => renderSingleRow(job, doc, true)).join('');
-
+                
                     return `
                     <div class="mb-3 border border-gray-700 rounded-xl overflow-hidden bg-gray-800/50">
                         <div onclick="toggleGroup('${groupId}')" class="p-4 flex justify-between items-center cursor-pointer hover:bg-gray-800 transition-colors">
-                            <div class="flex items-center gap-3 overflow-hidden">
+                            <div class="flex items-center gap-3 overflow-hidden flex-1">
                                 <div class="w-10 h-10 shrink-0 rounded bg-indigo-900/30 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
                                     <i data-lucide="layers" class="w-5 h-5"></i>
                                 </div>
-                                <div class="min-w-0">
+                                <div class="min-w-0 flex-1">
                                     <div class="flex items-center gap-2">
                                         <h3 class="font-bold text-gray-200 text-sm truncate">${groupName}</h3>
-                                        ${groupBadge} </div>
+                                        <button onclick="event.stopPropagation(); promptRenameGroup('${groupId}', '${groupName.replace(/'/g, "\\'")}')" class="text-gray-500 hover:text-emerald-400 transition-colors p-1">
+                                            <i data-lucide="pencil" class="w-3 h-3"></i>
+                                        </button>
+                                        ${groupBadge}
+                                    </div>
                                     <span class="text-[10px] text-indigo-300 font-mono">${count} Pages</span>
                                 </div>
                             </div>
                             
                             <div class="flex gap-2 shrink-0 ml-2">
-                                <button onclick="event.stopPropagation(); pendingDownloadDocId='${item.id}'; openDownloadModal('${item.id}', true)" class="p-2 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500 hover:text-white rounded-lg border border-indigo-500/30 transition-colors" title="Export Combined PDF">
+                                <button onclick="event.stopPropagation(); pendingDownloadDocId='${item.id}'; openDownloadModal('${item.id}', true)" class="p-2 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500 hover:text-white rounded-lg border border-indigo-500/30 transition-colors">
                                     <i data-lucide="file-stack" class="w-4 h-4"></i>
                                 </button>
-                                <button onclick="event.stopPropagation(); promptDelete('${item.id}', 'group')" class="p-2 bg-red-900/10 text-red-400 hover:bg-red-500 hover:text-white rounded-lg border border-red-900/30 transition-colors" title="Delete Group">
+                                <button onclick="event.stopPropagation(); promptDelete('${item.id}', 'group')" class="p-2 bg-red-900/10 text-red-400 hover:bg-red-500 hover:text-white rounded-lg border border-red-900/30 transition-colors">
                                     <i data-lucide="trash-2" class="w-4 h-4"></i>
                                 </button>
                                 <i data-lucide="chevron-down" id="arrow-${groupId}" class="w-4 h-4 text-gray-500 transition-transform duration-300"></i>
                             </div>
                         </div>
-
+                
                         <div id="group-${groupId}" class="hidden border-t border-gray-700/50 bg-gray-900/30">
                             ${childrenHtml}
                         </div>
                     </div>`;
+                }
                 } else {
                     // === SINGLE ROW ===
                     return `<div class="mb-3">${renderSingleRow(job, item, false)}</div>`;
@@ -2977,6 +2977,52 @@
             const el = document.getElementById('editor-zoom-display');
             if (fabricCanvas && el) {
                 el.innerText = Math.round(fabricCanvas.getZoom() * 100) + '%';
+            }
+        }
+
+        async function promptRenameGroup(groupId, currentName) {
+            const newTitle = prompt("Enter new title for this document stack:", currentName);
+            if (!newTitle || newTitle.trim() === "" || newTitle.trim() === currentName) return;
+        
+            const job = jobs.find(j => j.id === currentJobId);
+            if (!job || !db) return;
+        
+            try {
+                document.body.style.cursor = 'wait';
+                const jobRef = db.collection('jobs').doc(currentJobId);
+                const trimmedTitle = newTitle.trim();
+        
+                // 1. Map through local docs to create the new array for the 'jobs' document
+                const updatedDocsList = job.documents.map(doc => {
+                    if (doc.groupId === groupId) {
+                        // Determine the page suffix (e.g., " (Page 1)")
+                        const pageMatch = doc.name.match(/\(Page\s+\d+\)/i);
+                        const pagePart = pageMatch ? pageMatch[0] : `(Page ${(doc.pageIndex || 0) + 1})`;
+                        const newFullName = `${trimmedTitle} ${pagePart}.webp`;
+                        
+                        // Update local memory
+                        doc.name = newFullName;
+        
+                        // 2. Update the individual record in the 'scans' sub-collection
+                        db.collection('jobs').doc(currentJobId)
+                          .collection('scans').doc(doc.id)
+                          .update({ name: newFullName });
+                    }
+                    return doc;
+                });
+        
+                // 3. Update the main job array in Firestore
+                await jobRef.update({ documents: updatedDocsList });
+        
+                // 4. Refresh UI
+                renderDocumentList(job);
+                if(typeof lucide !== 'undefined') lucide.createIcons();
+        
+            } catch (e) {
+                console.error("Rename Group Error:", e);
+                alert("Failed to rename. Check your connection.");
+            } finally {
+                document.body.style.cursor = 'default';
             }
         }
         
@@ -5415,6 +5461,7 @@
     </script>
 </body>
 </html>
+
 
 
 
