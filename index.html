@@ -2991,35 +2991,43 @@
                 const jobRef = db.collection('jobs').doc(currentJobId);
                 const trimmedTitle = newTitle.trim();
         
-                // 1. Map through local docs to create the new array for the 'jobs' document
-                const updatedDocsList = job.documents.map(doc => {
+                // 1. Create a DEEP COPY of the documents to avoid circular references
+                // and hidden properties that cause the Call Stack error.
+                const cleanedDocs = JSON.parse(JSON.stringify(job.documents));
+        
+                const updatedDocsList = cleanedDocs.map(doc => {
                     if (doc.groupId === groupId) {
-                        // Determine the page suffix (e.g., " (Page 1)")
+                        // Determine the page suffix
                         const pageMatch = doc.name.match(/\(Page\s+\d+\)/i);
                         const pagePart = pageMatch ? pageMatch[0] : `(Page ${(doc.pageIndex || 0) + 1})`;
                         const newFullName = `${trimmedTitle} ${pagePart}.webp`;
                         
-                        // Update local memory
                         doc.name = newFullName;
         
                         // 2. Update the individual record in the 'scans' sub-collection
+                        // We do this separately to keep individual files in sync
                         db.collection('jobs').doc(currentJobId)
                           .collection('scans').doc(doc.id)
-                          .update({ name: newFullName });
+                          .update({ name: newFullName })
+                          .catch(err => console.error("Sub-doc update failed", err));
                     }
+                    // Remove any temporary UI flags we added (like _isGroup) 
+                    // so they don't get saved to the database
+                    delete doc._isGroup;
+                    delete doc._groupDocs;
                     return doc;
                 });
         
-                // 3. Update the main job array in Firestore
+                // 3. Update the main job array with the CLEAN list
                 await jobRef.update({ documents: updatedDocsList });
-        
-                // 4. Refresh UI
+                
+                // 4. Update local state so UI refreshes correctly
+                job.documents = updatedDocsList;
                 renderDocumentList(job);
-                if(typeof lucide !== 'undefined') lucide.createIcons();
         
             } catch (e) {
                 console.error("Rename Group Error:", e);
-                alert("Failed to rename. Check your connection.");
+                alert("Rename failed. The data might be too large or complex.");
             } finally {
                 document.body.style.cursor = 'default';
             }
@@ -5460,6 +5468,7 @@
     </script>
 </body>
 </html>
+
 
 
 
