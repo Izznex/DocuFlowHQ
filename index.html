@@ -2401,7 +2401,7 @@
                 if (item._isGroup) {
                     const groupId = item.groupId;
                     const count = item._groupDocs.length;
-                    let groupName = item.groupAlias || item.name.replace(/\.[^/.]+$/, "").replace(/\s*\(Page\s+\d+\).*/i, '');
+                    let groupName = item.name.replace(/\.[^/.]+$/, "").replace(/\s*\(Page\s+\d+\).*/i, '');
                 
                     // Aggregated Status logic remains same
                     const hasPending = item._groupDocs.some(d => d.requiresSignature && !d.isSigned);
@@ -2980,7 +2980,7 @@
         }
 
         async function promptRenameGroup(groupId, currentName) {
-            const newTitle = prompt("Enter new nickname for this document stack:", currentName);
+            const newTitle = prompt("Enter new title for all pages in this stack:", currentName);
             if (!newTitle || newTitle.trim() === "" || newTitle.trim() === currentName) return;
         
             const job = jobs.find(j => j.id === currentJobId);
@@ -2989,32 +2989,58 @@
             try {
                 document.body.style.cursor = 'wait';
                 const jobRef = db.collection('jobs').doc(currentJobId);
-                const trimmedAlias = newTitle.trim();
+                const trimmedTitle = newTitle.trim();
         
-                // 1. Create a clean copy of documents to modify
-                // We use the JSON trick to strip hidden Firebase circular references
-                const updatedDocsList = JSON.parse(JSON.stringify(job.documents)).map(doc => {
-                    if (doc.groupId === groupId) {
-                        // We don't rename the file anymore! 
-                        // We just tag it with a 'groupAlias'
-                        doc.groupAlias = trimmedAlias;
+                // 1. Map to a clean array (This fixes the Circular Error)
+                const updatedDocsList = job.documents.map(doc => {
+                    // Start with a clean copy of the original data
+                    const cleanDoc = {
+                        id: doc.id,
+                        name: doc.name,
+                        docCategory: doc.docCategory,
+                        type: doc.type,
+                        size: doc.size,
+                        date: doc.date,
+                        ocrText: doc.ocrText || "",
+                        smartData: doc.smartData || {},
+                        isSigned: doc.isSigned || false,
+                        requiresSignature: doc.requiresSignature || false,
+                        approverName: doc.approverName || null,
+                        approverUid: doc.approverUid || null,
+                        groupId: doc.groupId || null,
+                        pageIndex: doc.pageIndex || 0
+                    };
+        
+                    // 2. If the doc belongs to the target group, RENAME it
+                    if (cleanDoc.groupId === groupId) {
+                        // Extract the (Page X) part using Regex
+                        const pageMatch = doc.name.match(/\(Page\s+\d+\)/i);
+                        const pagePart = pageMatch ? pageMatch[0] : `(Page ${(doc.pageIndex || 0) + 1})`;
+                        
+                        const newFullName = `${trimmedTitle} ${pagePart}.webp`;
+                        cleanDoc.name = newFullName;
+        
+                        // 3. Update the individual record in the 'scans' sub-collection
+                        // This ensures the Lightbox and rename-input show the correct name too
+                        db.collection('jobs').doc(currentJobId)
+                          .collection('scans').doc(doc.id)
+                          .update({ name: newFullName })
+                          .catch(err => console.warn("Sub-doc rename failed", err));
                     }
-                    // Remove UI-only temporary flags before saving to DB
-                    delete doc._isGroup;
-                    delete doc._groupDocs;
-                    return doc;
+        
+                    return cleanDoc;
                 });
         
-                // 2. Save only the metadata to the main Job document
+                // 4. Save the whole cleaned array back to the main Job
                 await jobRef.update({ documents: updatedDocsList });
                 
-                // 3. Update local state and refresh UI
+                // 5. Update local memory and UI
                 job.documents = updatedDocsList;
                 renderDocumentList(job);
         
             } catch (e) {
                 console.error("Rename Group Error:", e);
-                alert("Rename failed. Check your connection.");
+                alert("Failed to rename children. Error: " + e.message);
             } finally {
                 document.body.style.cursor = 'default';
             }
@@ -5455,6 +5481,7 @@
     </script>
 </body>
 </html>
+
 
 
 
