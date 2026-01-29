@@ -4784,7 +4784,7 @@
                 let finalMultiplier = targetSize / currentLongestSide;
                 if (editorScaleFactor > 0) finalMultiplier = Math.min(finalMultiplier, 1 / editorScaleFactor);
         
-                const currentDataURL = fabricCanvas.toDataURL({ format: 'webp', quality: 0.85, multiplier: finalMultiplier });
+                const currentDataURL = fabricCanvas.toDataURL({ format: 'webp', quality: 0.90, multiplier: finalMultiplier });
                 
                 fabricCanvas.setViewportTransform(originalVpt); 
                 fabricCanvas.setZoom(fabricCanvas.getZoom());
@@ -5342,7 +5342,7 @@
                     canvas.height = img.height;
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0);
-                    const cleanDataURL = canvas.toDataURL('image/jpeg', 0.85);
+                    const cleanDataURL = canvas.toDataURL('image/jpeg', 0.90);
         
                     const isLandscape = img.width > img.height;
                     
@@ -5415,5 +5415,6 @@
     </script>
 </body>
 </html>
+
 
 
