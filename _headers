@@ -1,3 +1,6 @@
 /*
-  Permissions-Policy: camera=(self)
+  X-Robots-Tag: noindex, nofollow
+  X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
+  Permissions-Policy: camera=(self)
+  Referrer-Policy: same-origin
